@@ -6,10 +6,9 @@ Comment=Ask your Launchpad bots, go to any agent, and see what needs you
 Exec=launchpad-desktop
 Icon=dev.launchpad.Desktop
 Terminal=false
-Categories=Development;Utility;
+Categories=Development;
 Keywords=launchpad;agent;bot;ask;spotlight;
 StartupNotify=true
-SingleMainWindow=true
 X-GNOME-UsesNotifications=true
 Actions=ask;goto;launch;today;
 

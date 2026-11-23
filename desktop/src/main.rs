@@ -519,11 +519,13 @@ impl Ctx {
             Some(update::State::Available(c)) | Some(update::State::Failed { candidate: c, .. }) => c.clone(),
             _ => return,
         };
+        // Set at once (not through the channel), so a second click before the main loop catches up starts nothing.
+        *self.update.borrow_mut() = Some(update::State::Downloading(candidate.version.clone()));
+        self.refresh();
         let tx = self.updates.clone();
         let say = move |s: update::State| {
             let _ = tx.try_send(Upd::State(s));
         };
-        say(update::State::Downloading(candidate.version.clone()));
         self.rt.spawn(async move {
             let http = update::client();
             let c = candidate.clone();
@@ -708,7 +710,10 @@ fn main() -> glib::ExitCode {
 /// Starts the newly installed companion once this one has quit (the single instance would otherwise take it).
 fn restart_companion() {
     let exe = if std::path::Path::new("/usr/bin/launchpad-desktop").exists() { "/usr/bin/launchpad-desktop".to_string() } else { std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default() };
-    let spawned = std::process::Command::new("/bin/sh").arg("-c").arg("sleep 2; exec \"$0\" --background").arg(&exe).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+    // Wait until this process is gone (at most 30 s), else the new one would hand its arguments to this instance,
+    // still registered on the bus, and exit.
+    let script = "i=0; while kill -0 \"$1\" 2>/dev/null && [ $i -lt 150 ]; do sleep 0.2; i=$((i+1)); done; exec \"$0\" --background";
+    let spawned = std::process::Command::new("/bin/sh").arg("-c").arg(script).arg(&exe).arg(std::process::id().to_string()).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
     if let Err(e) = spawned {
         tracing::warn!("restart: {e}");
     }

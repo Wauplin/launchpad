@@ -239,11 +239,27 @@ fn private_dir() -> anyhow::Result<PathBuf> {
     Ok(dir)
 }
 
-/// Downloads and verifies a package; answers its path in a private folder. Every check must pass.
+/// Where release assets come from: this repository's release downloads (GitHub then redirects to its asset host),
+/// except a debug build's fake release server.
+fn asset_url_ok(url: &str) -> bool {
+    url.starts_with(&format!("https://github.com/{REPO}/releases/download/")) || (cfg!(debug_assertions) && api_base() != API)
+}
+
+/// Downloads and verifies a package; answers its path in a private folder. Every check must pass; on any failure
+/// the folder is removed.
 pub async fn download(http: &reqwest::Client, c: &Candidate, on_verify: impl FnOnce()) -> anyhow::Result<PathBuf> {
+    anyhow::ensure!(asset_url_ok(&c.deb.browser_download_url) && asset_url_ok(&c.sha256.browser_download_url), "the release names a download outside {REPO}'s releases");
+    let dir = private_dir()?;
+    let result = fetch_and_verify(http, c, &dir, on_verify).await;
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    result
+}
+
+async fn fetch_and_verify(http: &reqwest::Client, c: &Candidate, dir: &Path, on_verify: impl FnOnce()) -> anyhow::Result<PathBuf> {
     use futures_util::StreamExt;
     use std::io::Write;
-    let dir = private_dir()?;
     let path = dir.join(&c.deb.name);
     let response = http.get(&c.deb.browser_download_url).send().await?;
     anyhow::ensure!(response.status().is_success(), "the download answered {}", response.status());
@@ -265,7 +281,6 @@ pub async fn download(http: &reqwest::Client, c: &Candidate, on_verify: impl FnO
     let result = verify_sums(&actual, parse_digest(c.deb.digest.as_deref()).as_deref(), parse_sha256_file(&sha_text, &c.deb.name).as_deref())
         .and_then(|()| fields(&path).and_then(|out| check_fields(&out, &c.version)));
     if let Err(reason) = result {
-        let _ = std::fs::remove_dir_all(&dir);
         anyhow::bail!(reason);
     }
     Ok(path)
@@ -379,6 +394,8 @@ mod tests {
         assert_eq!(select(&release, "2026.11.22.1"), None);
         assert_eq!(deb_version("launchpad-desktop_1.2_arm64.deb"), None);
         assert_eq!(deb_version("launchpad-desktop_1;rm_amd64.deb"), None);
+        assert!(asset_url_ok("https://github.com/Wauplin/launchpad/releases/download/main-build/launchpad-desktop_1_amd64.deb"));
+        assert!(cfg!(debug_assertions) && std::env::var_os("LAUNCHPAD_DESKTOP_UPDATE_API").is_some() || !asset_url_ok("https://evil.example/launchpad-desktop_1_amd64.deb"));
     }
 
     #[test]
