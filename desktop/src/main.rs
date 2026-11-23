@@ -13,12 +13,13 @@ use gtk::{gio, glib};
 use ksni::TrayMethods;
 use tokio::sync::mpsc;
 
-use launchpad_desktop::engine::{Cmd, Engine, LinkMsg, Shared, Ui, View};
-use launchpad_desktop::tray::{self, Action, LpTray};
-use launchpad_desktop::{APP_ID, conn, desktop, linkwin, logging, settings};
+use launchpad_desktop::engine::{AskView, Cmd, Engine, LinkMsg, Shared, SpotData, Ui, View};
+use launchpad_desktop::shortcut::{self, State as ShortcutState};
+use launchpad_desktop::tray::{self, Action, LpTray, ShortcutMenu};
+use launchpad_desktop::{APP_ID, conn, desktop, linkwin, logging, prefs, quicklaunch, rules, settings, spotlight};
 
 const USAGE: &str = "Usage: launchpad-desktop [--toggle | --action <ask|goto|launch|open|today|connect|quit> | --background | --quit]
-  --toggle      Open or close the spotlight (bind it to a global shortcut)
+  --toggle      Open or close the spotlight (bind any shortcut to it)
   --action      Run one menu action in the running companion
   --background  Start without opening a window (autostart)
   --quit        Quit the running companion
@@ -39,6 +40,19 @@ struct Ctx {
     /// An action asked for before the engine's first view (the shortcut started the companion): run once it knows
     /// whether a Home is linked.
     pending: RefCell<Option<Action>>,
+    spot_data: RefCell<Arc<SpotData>>,
+    /// The spotlight: created once at start, then shown and hidden (warm).
+    spotlight: RefCell<Option<Rc<spotlight::Spotlight>>>,
+    quick: RefCell<Option<Rc<quicklaunch::QuickLaunch>>>,
+    prefs: RefCell<Option<gtk::Window>>,
+    shortcut: RefCell<ShortcutState>,
+    portal: RefCell<Option<mpsc::UnboundedSender<shortcut::PortalCmd>>>,
+    /// Asks already notified as answered (by key).
+    answered: RefCell<std::collections::HashSet<String>>,
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 impl Ctx {
@@ -46,16 +60,31 @@ impl Ctx {
         let _ = self.cmd.send(cmd);
     }
 
+    fn save(&self, change: impl FnOnce(&mut settings::Settings)) {
+        let mut s = self.settings.lock().unwrap();
+        change(&mut s);
+        if let Err(e) = s.save() {
+            tracing::warn!("settings not saved: {e}");
+        }
+    }
+
+    fn shortcut_menu(&self) -> ShortcutMenu {
+        let state = self.shortcut.borrow().clone();
+        let available = shortcut::custom::available();
+        ShortcutMenu { label: state.label(), portal: matches!(state, ShortcutState::Portal(_)), custom_available: available, custom_installed: available && shortcut::custom::installed().is_some() }
+    }
+
     /// Pushes the view and the switches to the tray icon and its menu, and the count to the dock badge.
     fn refresh(&self) {
         let view = self.view.borrow().clone();
-        let (notifications, autostart) = (self.settings.lock().unwrap().notifications, desktop::autostart_on());
+        let (notifications, autostart) = (self.settings.lock().unwrap().notifying(now_ms()), desktop::autostart_on());
         let count = view.live.then_some(view.status.count);
         let icon = tray::icons(count.unwrap_or(0), view.live);
         if self.badge.get() != count {
             self.badge.set(count);
             desktop::dock_badge(&self.app, count);
         }
+        let shortcut = self.shortcut_menu();
         let slot = self.tray.clone();
         self.rt.spawn(async move {
             let handle = slot.lock().unwrap().clone();
@@ -66,6 +95,7 @@ impl Ctx {
                         t.icon = icon;
                         t.notifications = notifications;
                         t.autostart = autostart;
+                        t.shortcut = shortcut;
                     })
                     .await;
             }
@@ -89,6 +119,134 @@ impl Ctx {
         *self.link.borrow_mut() = Some(window);
     }
 
+    fn spotlight(self: &Rc<Self>) -> Rc<spotlight::Spotlight> {
+        if let Some(s) = self.spotlight.borrow().as_ref() {
+            return s.clone();
+        }
+        let ctx = self.clone();
+        let spot = spotlight::Spotlight::new(&self.app, Rc::new(move |out| ctx.on_spot(out)));
+        spot.set_data(self.spot_data.borrow().clone(), self.settings.lock().unwrap().ask_bot.clone());
+        *self.spotlight.borrow_mut() = Some(spot.clone());
+        spot
+    }
+
+    fn quick(self: &Rc<Self>) -> Rc<quicklaunch::QuickLaunch> {
+        if let Some(q) = self.quick.borrow().as_ref() {
+            return q.clone();
+        }
+        let ctx = self.clone();
+        let q = quicklaunch::QuickLaunch::new(&self.app, Rc::new(move |out| ctx.on_quick(out)));
+        *self.quick.borrow_mut() = Some(q.clone());
+        q
+    }
+
+    fn open_quick(self: &Rc<Self>, prompt: &str) {
+        let (folder, profile) = {
+            let s = self.settings.lock().unwrap();
+            (s.last_folder.clone(), s.last_profile.clone())
+        };
+        self.quick().open(self.spot_data.borrow().clone(), prompt, folder.as_deref(), profile.as_deref());
+    }
+
+    fn open_prefs(self: &Rc<Self>) {
+        if let Some(w) = self.prefs.borrow().as_ref() {
+            w.close();
+        }
+        let s = self.settings.lock().unwrap().clone();
+        let available = shortcut::custom::available();
+        let data = self.spot_data.borrow().clone();
+        let state = self.shortcut.borrow().clone();
+        let now = prefs::Now { shortcut: &state, custom_available: available, custom_installed: available && shortcut::custom::installed().is_some(), data: &data, ask_bot: s.ask_bot.as_deref(), notifications: s.notifications, autostart: desktop::autostart_on() };
+        let ctx = self.clone();
+        let p = prefs::Prefs::new(&self.app, now, Rc::new(move |out| ctx.on_prefs(out)));
+        p.window.present();
+        *self.prefs.borrow_mut() = Some(p.window);
+    }
+
+    fn on_prefs(self: &Rc<Self>, out: prefs::Out) {
+        match out {
+            prefs::Out::ConfigureShortcut => self.on_action(Action::ChangeShortcut),
+            prefs::Out::CustomShortcut(on) => {
+                self.on_action(Action::CustomShortcut(on));
+                self.open_prefs();
+            }
+            prefs::Out::AskBot(bot) => {
+                self.save(|s| s.ask_bot = bot.clone());
+                if let Some(s) = self.spotlight.borrow().as_ref() {
+                    s.set_data(self.spot_data.borrow().clone(), bot);
+                }
+            }
+            prefs::Out::Notifications(on) => self.on_action(Action::Notifications(on)),
+            prefs::Out::Autostart(on) => self.on_action(Action::Autostart(on)),
+        }
+    }
+
+    fn on_spot(self: &Rc<Self>, out: spotlight::Out) {
+        match out {
+            spotlight::Out::Ask { bot, text, thread, session, key } => self.send(Cmd::Ask { bot, text, thread, session, key }),
+            spotlight::Out::Open(url) => desktop::open(&url),
+            spotlight::Out::Launch(text) => self.open_quick(&text),
+            spotlight::Out::Handoff { text, bot: None } => self.send(Cmd::Handoff(text)),
+            // A bot's chat has no Home-side draft yet (gap G-DRAFT): the text goes to the clipboard and the bot's
+            // new chat opens, where the owner pastes it.
+            spotlight::Out::Handoff { text, bot: Some(bot) } => {
+                if !text.trim().is_empty()
+                    && let Some(display) = gtk::gdk::Display::default()
+                {
+                    display.clipboard().set_text(&text);
+                }
+                let url = self.links_page(&format!("/bots/{}", bot.id), &[("thread", "new")]);
+                desktop::open(&url);
+            }
+            spotlight::Out::Resolve(text) => self.send(Cmd::Resolve(text)),
+            spotlight::Out::Command { name, rest } => match name.as_str() {
+                "launch" => self.open_quick(&rest),
+                "workspace" => self.send(Cmd::NextWorkspace),
+                "today" => desktop::open(&self.view.borrow().today_url),
+                "settings" => self.open_prefs(),
+                "dnd" => {
+                    self.save(|s| s.dnd_until = Some(now_ms() + 60 * 60_000));
+                    self.refresh();
+                }
+                _ => {}
+            },
+        }
+    }
+
+    /// An address of the linked Home in the companion's workspace.
+    fn links_page(&self, path: &str, query: &[(&str, &str)]) -> String {
+        let data = self.spot_data.borrow();
+        launchpad_desktop::links::Links::new(&data.origin, data.workspace.as_deref().unwrap_or_default()).page(path, query)
+    }
+
+    fn on_quick(self: &Rc<Self>, out: quicklaunch::Out) {
+        match out {
+            quicklaunch::Out::Launch { spec, key, folder, profile } => {
+                self.save(|s| {
+                    s.last_folder = folder;
+                    s.last_profile = Some(profile);
+                });
+                self.send(Cmd::Launch { spec, key });
+            }
+            quicklaunch::Out::Handoff(text) => self.send(Cmd::Handoff(text)),
+        }
+    }
+
+    fn on_ask(self: &Rc<Self>, view: AskView) {
+        let showing = self.spotlight.borrow().as_ref().is_some_and(|s| s.showing(&view.key));
+        if let Some(s) = self.spotlight.borrow().as_ref() {
+            s.on_ask(&view);
+        }
+        // An answer that arrives while the spotlight is closed: one notification (Open), when notifications are on.
+        let finished = view.answer.done || view.answer.question.is_some();
+        if finished && !showing && self.settings.lock().unwrap().notifying(now_ms()) && self.answered.borrow_mut().insert(view.key.clone()) {
+            let what = if view.answer.question.is_some() { "asks you" } else { "answered" };
+            let body = view.answer.question.clone().unwrap_or_else(|| view.answer.text.clone());
+            let note = rules::Note { key: format!("ask-{}", view.session), title: format!("{} {what}", view.bot.name), body: launchpad_desktop::model::cut(&body, rules::BODY_CHARS), item: None };
+            desktop::notify(&self.app, &note, &view.thread_url);
+        }
+    }
+
     fn on_ui(self: &Rc<Self>, msg: Ui) {
         match msg {
             Ui::View(view) => {
@@ -102,6 +260,29 @@ impl Ctx {
                 if first && let Some(action) = self.pending.take() {
                     self.run(action);
                 }
+            }
+            Ui::Spot(data) => {
+                *self.spot_data.borrow_mut() = data.clone();
+                if let Some(s) = self.spotlight.borrow().as_ref() {
+                    s.set_data(data, self.settings.lock().unwrap().ask_bot.clone());
+                }
+            }
+            Ui::Ask(view) => self.on_ask(*view),
+            Ui::Launched(result) => {
+                if let Some(q) = self.quick.borrow().as_ref() {
+                    q.launched(&result);
+                }
+                if let Ok(url) = &result {
+                    desktop::open(url);
+                }
+            }
+            Ui::SpotError(e) => {
+                tracing::info!("spotlight: {e}");
+                let spot = self.spotlight();
+                if !spot.window.is_visible() {
+                    spot.show(None, None);
+                }
+                spot.error(&e);
             }
             Ui::Notify { note, url } => desktop::notify(&self.app, &note, &url),
             Ui::Link(msg) => {
@@ -133,30 +314,69 @@ impl Ctx {
         }
     }
 
+    fn on_shortcut(self: &Rc<Self>, event: shortcut::Event) {
+        match event {
+            shortcut::Event::State(state) => {
+                tracing::info!("{}", state.label());
+                *self.shortcut.borrow_mut() = state;
+                self.refresh();
+            }
+            shortcut::Event::Activated(token) => self.toggle(token.as_deref()),
+        }
+    }
+
+    /// The shortcut (or `--toggle`): the spotlight when linked, else the link window.
+    fn toggle(self: &Rc<Self>, token: Option<&str>) {
+        if !self.view.borrow().linked {
+            self.open_link_window();
+            return;
+        }
+        self.spotlight().toggle(token, None);
+    }
+
+    /// Starts the portal path (unless the owner chose the custom shortcut or none); its failure says why in the menu.
+    fn start_shortcut(self: &Rc<Self>, events: async_channel::Sender<shortcut::Event>) {
+        let s = self.settings.lock().unwrap().clone();
+        if s.shortcut_mode != "portal" {
+            let state = match shortcut::custom::installed() {
+                Some(accel) => ShortcutState::Custom(accel),
+                None => ShortcutState::Unavailable("No global shortcut is set".into()),
+            };
+            *self.shortcut.borrow_mut() = state;
+            return;
+        }
+        let (tx, rx) = mpsc::unbounded_channel();
+        *self.portal.borrow_mut() = Some(tx);
+        self.rt.spawn(async move {
+            if let Err(e) = shortcut::portal(s.shortcut.clone(), events.clone(), rx).await {
+                tracing::warn!("global shortcut portal: {e}");
+                let why = format!("The shortcut portal is not available ({e})");
+                let _ = events.send(shortcut::Event::State(ShortcutState::Unavailable(why))).await;
+            }
+        });
+    }
+
     fn on_action(self: &Rc<Self>, action: Action) {
         let view = self.view.borrow().clone();
         match action {
             Action::Open(url) => desktop::open(&url),
-            // Until the spotlight (step 3): the browser's own Ask, Go to (Today) and launch composer.
-            Action::Ask => desktop::open(&view.ask_url),
-            Action::GoTo | Action::OpenHome => desktop::open(&view.today_url),
-            Action::QuickLaunch => desktop::open(&view.launch_url),
+            Action::Ask => self.spotlight().show(None, None),
+            Action::GoTo => self.spotlight().show(None, Some(">")),
+            Action::QuickLaunch => self.open_quick(""),
+            Action::OpenHome => desktop::open(&view.today_url),
             Action::Workspace(id) => self.send(Cmd::SetWorkspace(id)),
             Action::Notifications(on) => {
-                let mut s = self.settings.lock().unwrap();
-                s.notifications = on;
-                let _ = s.save();
-                drop(s);
+                self.save(|s| {
+                    s.notifications = on;
+                    s.dnd_until = None;
+                });
                 self.refresh();
             }
             Action::Autostart(on) => {
                 if let Err(e) = desktop::set_autostart(on) {
                     tracing::warn!("autostart: {e}");
                 }
-                let mut s = self.settings.lock().unwrap();
-                s.autostart = Some(on);
-                let _ = s.save();
-                drop(s);
+                self.save(|s| s.autostart = Some(on));
                 self.refresh();
             }
             Action::Connect => self.open_link_window(),
@@ -164,6 +384,27 @@ impl Ctx {
             Action::SignOut => self.send(Cmd::SignOut),
             Action::Update => {}
             Action::Quit => self.app.quit(),
+            Action::Settings => self.open_prefs(),
+            Action::ChangeShortcut => {
+                if let Some(tx) = self.portal.borrow().as_ref() {
+                    let _ = tx.send(shortcut::PortalCmd::Configure);
+                }
+            }
+            // Only on the owner's explicit choice; the owner's other shortcuts are never touched.
+            Action::CustomShortcut(on) => {
+                let trigger = self.settings.lock().unwrap().shortcut.clone();
+                let result = if on { shortcut::custom::install(&shortcut::gnome_accel(&trigger), "launchpad-desktop --toggle") } else { shortcut::custom::remove() };
+                match result {
+                    Ok(()) => {
+                        self.save(|s| s.shortcut_mode = if on { "custom".into() } else { "off".into() });
+                        let state = if on { ShortcutState::Custom(shortcut::words(&trigger)) } else { ShortcutState::Unavailable("No global shortcut is set".into()) };
+                        tracing::info!("{}", state.label());
+                        *self.shortcut.borrow_mut() = state;
+                    }
+                    Err(e) => tracing::warn!("GNOME custom shortcut: {e}"),
+                }
+                self.refresh();
+            }
         }
     }
 
@@ -175,13 +416,15 @@ impl Ctx {
             self.want_link.set(!background && action.is_none());
         }
         let Some(name) = action else {
-            // A plain second launch (the dock icon or the app grid): the link window when not linked, else Home.
+            // A plain second launch (the dock icon or the app grid): the link window when not linked, else the
+            // spotlight.
             if !first {
-                if self.view.borrow().linked { self.on_action(Action::OpenHome) } else { self.open_link_window() }
+                if self.view.borrow().linked { self.toggle(None) } else { self.open_link_window() }
             }
             return 0;
         };
         let action = match name.as_str() {
+            "toggle" => Action::Ask,
             "ask" => Action::Ask,
             "goto" => Action::GoTo,
             "launch" => Action::QuickLaunch,
@@ -190,10 +433,12 @@ impl Ctx {
             "quit" => Action::Quit,
             _ => return 2,
         };
+        let toggle = name == "toggle";
         // Before the first view the engine does not know the link yet: actions other than connect and quit wait for it.
         match action {
             Action::Connect | Action::Quit => self.on_action(action),
             _ if !self.seen_view.get() => *self.pending.borrow_mut() = Some(action),
+            _ if toggle => self.toggle(None),
             _ => self.run(action),
         }
         0
@@ -238,7 +483,7 @@ fn main() -> glib::ExitCode {
         let (notifications, autostart) = (settings.lock().unwrap().notifications, desktop::autostart_on());
         let t = tray_slot.clone();
         rt.spawn(async move {
-            let tray = LpTray { view: View::default(), notifications, autostart, icon: tray::icons(0, false), tx: act_tx };
+            let tray = LpTray { view: View::default(), notifications, autostart, icon: tray::icons(0, false), shortcut: ShortcutMenu::default(), tx: act_tx };
             // Keep running without a tray host: the icon appears when one starts (the AppIndicator extension).
             match tray.assume_sni_available(true).spawn().await {
                 Ok(handle) => *t.lock().unwrap() = Some(handle),
@@ -264,6 +509,23 @@ fn main() -> glib::ExitCode {
             want_link: Cell::new(false),
             seen_view: Cell::new(false),
             pending: RefCell::new(None),
+            spot_data: RefCell::new(Arc::default()),
+            spotlight: RefCell::new(None),
+            quick: RefCell::new(None),
+            prefs: RefCell::new(None),
+            shortcut: RefCell::new(ShortcutState::Starting),
+            portal: RefCell::new(None),
+            answered: RefCell::new(Default::default()),
+        });
+        // The spotlight is built now, hidden, so the shortcut shows it at once.
+        c.spotlight();
+        let (sc_tx, sc_rx) = async_channel::unbounded::<shortcut::Event>();
+        c.start_shortcut(sc_tx);
+        let sc = c.clone();
+        glib::spawn_future_local(async move {
+            while let Ok(event) = sc_rx.recv().await {
+                sc.on_shortcut(event);
+            }
         });
         let ui = c.clone();
         glib::spawn_future_local(async move {
@@ -299,7 +561,7 @@ fn valid_args(args: &[String]) -> Option<Option<String>> {
     let mut action = None;
     while let Some(arg) = it.next() {
         match arg.as_str() {
-            "--toggle" => action = Some("ask".to_string()),
+            "--toggle" => action = Some("toggle".to_string()),
             "--action" => {
                 let name = it.next()?;
                 ["ask", "goto", "launch", "open", "today", "connect", "quit"].contains(&name.as_str()).then_some(())?;
@@ -319,7 +581,7 @@ mod tests {
     fn arguments() {
         let a = |s: &str| std::iter::once("launchpad-desktop").chain(s.split_whitespace()).map(String::from).collect::<Vec<_>>();
         assert_eq!(super::valid_args(&a("")), Some(None));
-        assert_eq!(super::valid_args(&a("--toggle")), Some(Some("ask".into())));
+        assert_eq!(super::valid_args(&a("--toggle")), Some(Some("toggle".into())));
         assert_eq!(super::valid_args(&a("--background --action goto")), Some(Some("goto".into())));
         assert_eq!(super::valid_args(&a("--action")), None);
         assert_eq!(super::valid_args(&a("--action rm")), None);

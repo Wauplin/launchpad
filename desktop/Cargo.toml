@@ -19,6 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+ashpd = { version = "0.14", default-features = false, features = ["tokio", "global_shortcuts"] }
 async-channel = "2"
 base64 = "0.22"
 futures-util = "0.3"

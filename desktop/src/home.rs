@@ -115,6 +115,13 @@ impl Home {
         response.json().await.map_err(|e| HomeError { failure: Failure::Other, message: format!("Unexpected answer from Home: {e}"), status: 0 })
     }
 
+    /// A JSON write (`POST`, `PUT`); `key` becomes its `Idempotency-Key`, so a retry is done once on Home.
+    pub async fn write(&self, method: reqwest::Method, path: &str, body: &serde_json::Value, key: Option<&str>) -> Result<serde_json::Value, HomeError> {
+        let extra: Vec<(&str, String)> = key.map(|k| vec![("Idempotency-Key", k.to_string())]).unwrap_or_default();
+        let response = self.send(method, path, Some(body), &extra).await?;
+        response.json().await.map_err(|e| HomeError { failure: Failure::Other, message: format!("Unexpected answer from Home: {e}"), status: 0 })
+    }
+
     pub async fn delete(&self, path: &str) -> Result<(), HomeError> {
         self.send(reqwest::Method::DELETE, path, None, &[]).await.map(|_| ())
     }

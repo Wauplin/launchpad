@@ -21,6 +21,22 @@ pub enum Action {
     SignOut,
     Update,
     Quit,
+    /// The companion's settings window.
+    Settings,
+    /// GNOME's dialog for the portal shortcut.
+    ChangeShortcut,
+    /// Add (true) or remove the GNOME custom shortcut.
+    CustomShortcut(bool),
+}
+
+/// The shortcut part of the menu.
+#[derive(Clone, Debug, Default)]
+pub struct ShortcutMenu {
+    pub label: String,
+    /// Bound through the portal (Change shortcut… works).
+    pub portal: bool,
+    pub custom_available: bool,
+    pub custom_installed: bool,
 }
 
 pub struct LpTray {
@@ -28,6 +44,7 @@ pub struct LpTray {
     pub notifications: bool,
     pub autostart: bool,
     pub icon: Vec<ksni::Icon>,
+    pub shortcut: ShortcutMenu,
     pub tx: async_channel::Sender<Action>,
 }
 
@@ -132,6 +149,15 @@ impl ksni::Tray for LpTray {
         menu.push(self.item("Quick launch…", v.live.then_some(Action::QuickLaunch)));
         menu.push(self.item("Open Launchpad", Some(Action::OpenHome)));
         menu.push(ksni::MenuItem::Separator);
+        if !self.shortcut.label.is_empty() {
+            menu.push(self.item(self.shortcut.label.clone(), None));
+        }
+        if self.shortcut.portal {
+            menu.push(self.item("Change shortcut…", Some(Action::ChangeShortcut)));
+        } else if self.shortcut.custom_available && !self.shortcut.custom_installed {
+            menu.push(self.item("Use a GNOME custom shortcut", Some(Action::CustomShortcut(true))));
+        }
+        menu.push(self.item("Settings…", Some(Action::Settings)));
         if v.workspaces.len() > 1 {
             let selected = v.workspaces.iter().position(|(id, _)| Some(id) == v.workspace.as_ref()).unwrap_or(0);
             let ids: Vec<String> = v.workspaces.iter().map(|(id, _)| id.clone()).collect();

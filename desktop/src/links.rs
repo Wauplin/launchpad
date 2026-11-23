@@ -30,6 +30,14 @@ impl Links {
         url.to_string()
     }
 
+    /// A page Home named (`/agents?session=…`, from `GET /api/refs/resolve`), with `ws=` added.
+    pub fn path(&self, path_and_query: &str) -> String {
+        let (path, query) = path_and_query.split_once('?').unwrap_or((path_and_query, ""));
+        let pairs: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes()).into_owned().filter(|(k, _)| k != "ws").collect();
+        let borrowed: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        self.page(if path.starts_with('/') { path } else { "/" }, &borrowed)
+    }
+
     /// Today, or one of its cards (`/?card=<item id>`).
     pub fn today_item(&self, id: &str) -> String {
         self.page("/", &[("card", id)])
@@ -86,5 +94,7 @@ mod tests {
         s.launch_spec.bot = Some(serde_json::from_value(serde_json::json!({"id": "b/1", "thread": "t1"})).unwrap());
         assert_eq!(l.session(&s), "http://127.0.0.1:7317/bots/b%2F1?thread=t1&ws=w+1");
         assert_eq!(Links::new("http://h", "").today(), "http://h/");
+        assert_eq!(Links::new("http://h", "w2").path("/bots/b1?thread=t1&msg=s.3"), "http://h/bots/b1?thread=t1&msg=s.3&ws=w2");
+        assert_eq!(Links::new("http://h", "w2").path("/projects/f1"), "http://h/projects/f1?ws=w2");
     }
 }

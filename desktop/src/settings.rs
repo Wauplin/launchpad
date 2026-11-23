@@ -53,11 +53,34 @@ pub struct Settings {
     pub autostart: Option<bool>,
     /// The Hugging Face OAuth app's client ID, when the build has none (`LAUNCHPAD_HF_CLIENT_ID`).
     pub hf_client_id: Option<String>,
+    /// The spotlight's default Ask target on this device (a bot ID); the web's rule when unset or gone.
+    pub ask_bot: Option<String>,
+    /// The quick launch's last folder and profile on this device.
+    pub last_folder: Option<String>,
+    pub last_profile: Option<String>,
+    /// `/dnd`: no notifications until this time (Unix ms).
+    pub dnd_until: Option<i64>,
+    /// The global shortcut asked of the portal (its format, `CTRL+ALT+space`).
+    pub shortcut: String,
+    /// `portal` (the default), `custom` (the GNOME custom shortcut the owner chose) or `off`.
+    pub shortcut_mode: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { home: None, workspace: None, notifications: true, autostart: None, hf_client_id: None }
+        Settings {
+            home: None,
+            workspace: None,
+            notifications: true,
+            autostart: None,
+            hf_client_id: None,
+            ask_bot: None,
+            last_folder: None,
+            last_profile: None,
+            dnd_until: None,
+            shortcut: crate::shortcut::DEFAULT_TRIGGER.into(),
+            shortcut_mode: "portal".into(),
+        }
     }
 }
 
@@ -83,6 +106,11 @@ fn path() -> PathBuf {
 }
 
 impl Settings {
+    /// Notifications are on and not paused by `/dnd`.
+    pub fn notifying(&self, now: i64) -> bool {
+        self.notifications && self.dnd_until.is_none_or(|t| now >= t)
+    }
+
     /// The saved settings; defaults when there is no file, or when it cannot be read (logged).
     pub fn load() -> Settings {
         match std::fs::read_to_string(path()) {
@@ -124,5 +152,8 @@ mod tests {
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
         let empty: Settings = toml::from_str("").unwrap();
         assert!(empty.notifications && empty.home.is_none() && empty.autostart.is_none());
+        assert_eq!((empty.shortcut.as_str(), empty.shortcut_mode.as_str()), ("CTRL+ALT+space", "portal"));
+        let dnd = Settings { dnd_until: Some(100), ..Settings::default() };
+        assert!(!dnd.notifying(99) && dnd.notifying(100));
     }
 }

@@ -64,6 +64,27 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ws) = ws {
         println!("{:#?}", model::status(&model, &ws, &Links::new(&origin, &ws)));
     }
+    // The spotlight's requests (step 3): a link resolved, an ask sent, the launch spec checked, a composer hand-off.
+    if let (Some(ws), Some(bot)) = (model.workspace(None), model.bots.first().cloned()) {
+        let links = Links::new(&origin, &ws);
+        println!("resolve lp:bot/{} → {:?}", bot.id, launchpad_desktop::actions::resolve(&home, &format!("lp:bot/{}", bot.id)).await.map_err(|e| e.message));
+        println!("resolve lp:session/nope → {:?}", launchpad_desktop::actions::resolve(&home, "lp:session/nope").await.map_err(|e| e.message));
+        let key = launchpad_desktop::spot::new_key();
+        println!("ask {} → thread {:?}", bot.name(), launchpad_desktop::actions::ask(&home, &bot.id, "probe: hello", None, &key).await.map_err(|e| e.message));
+        println!("same key again (idempotent) → thread {:?}", launchpad_desktop::actions::ask(&home, &bot.id, "probe: hello", None, &key).await.map_err(|e| e.message));
+        let sends: serde_json::Value = home.get(&format!("/api/bots/{}/sends", bot.id)).await?;
+        println!("Home's receipts for the bot: {}", sends.as_array().map_or(0, |a| a.iter().filter(|s| s["id"] == key.as_str()).count()));
+        let profile = launchpad_desktop::model::Profile { id: "probe".into(), name: "Probe".into(), harness: "claude".into() };
+        let spec = launchpad_desktop::actions::launch_spec("probe: list the files", &profile, None, "keep", &ws);
+        let preview = home.write(reqwest::Method::POST, "/api/launch/preview", &spec, None).await;
+        println!("launch spec preview → {:?}", preview.map(|_| "accepted").map_err(|e| e.message));
+        println!("handoff → {:?}", launchpad_desktop::actions::handoff(&home, &links, &ws, "probe: draft text").await.map_err(|e| e.message));
+        let draft: serde_json::Value = home.get(&format!("/api/launch/draft?workspace={ws}")).await?;
+        println!("draft now: text {:?}, open {}, revision {}", draft["spec"]["text"], draft["open"], draft["revision"]);
+        println!("handoff again (appends, next revision) → {:?}", launchpad_desktop::actions::handoff(&home, &links, &ws, "second").await.map_err(|e| e.message));
+        let draft: serde_json::Value = home.get(&format!("/api/launch/draft?workspace={ws}")).await?;
+        println!("draft now: text {:?}, revision {}", draft["spec"]["text"], draft["revision"]);
+    }
     home.delete("/api/devices/self").await?;
     println!("device deleted; next call: {:?}", home.get::<serde_json::Value>("/api/version").await.err().map(|e| e.failure));
     Ok(())

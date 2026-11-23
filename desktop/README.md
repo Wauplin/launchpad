@@ -1,6 +1,6 @@
 # launchpad-desktop
 
-The Linux desktop companion of Launchpad for Ubuntu GNOME on Wayland: a top-bar menu with live status, desktop notifications and browser hand-offs (the spotlight comes next). It is a thin client of Home, like the Chrome extension; the full UI stays in the browser. User documentation lives in `docs/`.
+The Linux desktop companion of Launchpad for Ubuntu GNOME on Wayland: a global spotlight (Ask a bot, Go to any Launchpad object, quick launch, hand-off to the browser), a top-bar menu with live status, and desktop notifications. It is a thin client of Home, like the Chrome extension; the full UI stays in the browser. User documentation lives in `docs/`.
 
 ## Build
 
@@ -31,7 +31,7 @@ export RUSTFLAGS="-C link-arg=-Wl,-rpath-link,$L -C link-arg=-L$L" LD_LIBRARY_PA
 
 ## Run
 
-`launchpad-desktop` starts the companion (the first launch opens the connection window). A second launch hands its arguments to the running one: `--toggle` (the spotlight, bound to a global shortcut), `--action ask|goto|launch|open|today|connect|quit`, `--background` (autostart: no window), `--quit`. Logs go to stderr and `$XDG_STATE_HOME/launchpad-desktop/companion.log`, with secrets redacted; `LAUNCHPAD_DESKTOP_LOG=debug` shows more.
+`launchpad-desktop` starts the companion (the first launch opens the connection window). The global shortcut (Ctrl+Alt+Space by default) comes from the GlobalShortcuts portal, which asks once in GNOME's dialog; the menu's Use a GNOME custom shortcut writes only its own entry of GNOME's custom shortcuts instead. Notifications and the portal need the installed `dev.launchpad.Desktop.desktop`. A second launch hands its arguments to the running one: `--toggle` (the spotlight, bound to a global shortcut), `--action ask|goto|launch|open|today|connect|quit`, `--background` (autostart: no window), `--quit`. Logs go to stderr and `$XDG_STATE_HOME/launchpad-desktop/companion.log`, with secrets redacted; `LAUNCHPAD_DESKTOP_LOG=debug` shows more.
 
 Sign in with Hugging Face uses a public OAuth app whose client ID comes from `LAUNCHPAD_HF_CLIENT_ID` at build time, or `hf_client_id` in `$XDG_CONFIG_HOME/launchpad-desktop/settings.toml`. Register the redirect URI `http://127.0.0.1/callback` (no port: Hugging Face accepts any port for loopback redirects). Without a client ID, the connection window takes a pasted Hugging Face token instead.
 

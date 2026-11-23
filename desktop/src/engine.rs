@@ -18,7 +18,12 @@ use crate::model::{self, BusEvent, Model, Reload, Status};
 use crate::rules::{Note, Rules};
 use crate::secrets;
 use crate::settings::{HfLogin, HomeKind, HomeLink, Settings};
+use crate::search::Entry;
+use crate::spot::{self, Answer, BotInfo};
 use crate::sse;
+use crate::actions;
+use std::collections::HashMap;
+use serde_json::Value;
 
 pub type Shared = Arc<Mutex<Settings>>;
 
@@ -45,6 +50,18 @@ pub enum Cmd {
     HfReady { auth: HfAuth, spaces: Vec<FoundHome>, reauth: bool },
     /// Internal: a link task got a device.
     Linked { link: HomeLink, device: String, hf: Option<HfAuth> },
+    /// The spotlight's `/workspace` and Ctrl+W.
+    NextWorkspace,
+    /// Ask a bot: a new thread, or a reply in `thread` (whose session is `session`). `key` is the Idempotency-Key.
+    Ask { bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String },
+    /// Quick launch (`POST /api/sessions`); `key` is the Idempotency-Key.
+    Launch { spec: Value, key: String },
+    /// Continue in the browser composer with this text.
+    Handoff(String),
+    /// Open a pasted link or short ID.
+    Resolve(String),
+    /// Internal: Home accepted an ask (its thread), or refused it.
+    AskSent { session: String, thread: Result<String, String> },
 }
 
 impl std::fmt::Debug for HfAuth {
@@ -103,8 +120,54 @@ pub struct View {
     pub update: Option<String>,
 }
 
+/// A folder the quick launch offers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FolderChoice {
+    pub id: String,
+    pub name: String,
+    /// A Git folder: the launch gets a worktree and When done.
+    pub git: bool,
+}
+
+/// What the spotlight and the quick launch need, rebuilt when the model or the workspace changes.
+#[derive(Clone, Debug, Default)]
+pub struct SpotData {
+    pub origin: String,
+    pub workspace: Option<String>,
+    pub workspace_name: String,
+    pub live: bool,
+    pub entries: Vec<Entry>,
+    pub bots: Vec<BotInfo>,
+    /// Today's needs-you rows (label, URL).
+    pub needs: Vec<(String, String)>,
+    pub folders: Vec<FolderChoice>,
+    pub profiles: Vec<model::Profile>,
+    /// The folder of the workspace's newest agent (the quick launch's default after the device's last one).
+    pub newest_folder: Option<String>,
+}
+
+/// One ask as the spotlight shows it.
+#[derive(Clone, Debug)]
+pub struct AskView {
+    /// The Idempotency-Key of the latest message (the spotlight follows only its own latest ask).
+    pub key: String,
+    pub session: String,
+    pub bot: BotInfo,
+    pub thread: Option<String>,
+    /// The thread in the browser (`/bots/<bot>?thread=<thread>&ws=`).
+    pub thread_url: String,
+    pub answer: Answer,
+    pub error: Option<String>,
+}
+
 pub enum Ui {
     View(Box<View>),
+    Spot(Arc<SpotData>),
+    Ask(Box<AskView>),
+    /// A quick launch started (the session's address) or was refused.
+    Launched(Result<String, String>),
+    /// A spotlight request failed (shown in its footer).
+    SpotError(String),
     Notify { note: Note, url: String },
     Link(LinkMsg),
     /// Open this address in the default browser.
@@ -133,6 +196,20 @@ pub struct Engine {
     /// Streams in a row that ended within `STEADY` of opening.
     drops: u32,
     last_view: Option<View>,
+    /// Asks followed through their session's events, by session ID.
+    watches: HashMap<String, Watch>,
+    /// What the last `SpotData` was built from (model version, workspace, live).
+    spot_key: Option<(u64, Option<String>, bool)>,
+}
+
+/// An ask followed through its session: the session's events since it was sent, and where it stands.
+struct Watch {
+    key: String,
+    bot: BotInfo,
+    thread: Option<String>,
+    events: Vec<Value>,
+    last_seq: i64,
+    error: Option<String>,
 }
 
 fn now() -> i64 {
@@ -183,6 +260,8 @@ impl Engine {
             said: None,
             drops: 0,
             last_view: None,
+            watches: HashMap::new(),
+            spot_key: None,
         };
         (engine, tx)
     }
@@ -278,9 +357,66 @@ impl Engine {
     async fn command(&mut self, cmd: Cmd) -> bool {
         match cmd {
             Cmd::SetWorkspace(id) => {
-                self.save(|s| s.workspace = Some(id));
-                self.rules.reset();
-                self.rules.on_today(&self.today_items(), now(), false);
+                self.switch_workspace(id).await;
+                false
+            }
+            Cmd::NextWorkspace => {
+                let mut list: Vec<(String, String)> = self.model.workspaces.iter().map(|w| (w.name.to_lowercase(), w.id.clone())).collect();
+                list.sort();
+                let current = self.workspace();
+                let at = list.iter().position(|(_, id)| Some(id) == current.as_ref()).map_or(0, |i| (i + 1) % list.len().max(1));
+                if let Some((_, id)) = list.get(at).cloned() {
+                    self.switch_workspace(id).await;
+                }
+                false
+            }
+            Cmd::Ask { bot, text, thread, session, key } => {
+                self.ask(bot, text, thread, session, key);
+                false
+            }
+            Cmd::AskSent { session, thread } => {
+                if let Some(w) = self.watches.get_mut(&session) {
+                    match thread {
+                        Ok(t) if !t.is_empty() => w.thread = Some(t),
+                        Ok(_) => {}
+                        Err(e) => w.error = Some(e),
+                    }
+                }
+                self.ask_view(&session);
+                false
+            }
+            Cmd::Launch { spec, key } => {
+                self.spawn_write(move |home, links| async move {
+                    match actions::launch(&home, &spec, &key).await {
+                        Ok(s) => Ui::Launched(Ok(links.session(&s))),
+                        Err(e) => Ui::Launched(Err(e.message)),
+                    }
+                });
+                false
+            }
+            Cmd::Handoff(text) => {
+                let ws = self.workspace().unwrap_or_default();
+                self.spawn_write(move |home, links| async move {
+                    match actions::handoff(&home, &links, &ws, &text).await {
+                        Ok(url) => Ui::Open(url),
+                        Err(e) => match actions::share_url(&links, &text) {
+                            Some(url) => {
+                                tracing::info!("composer draft not saved ({}): the text goes in the address", e.message);
+                                Ui::Open(url)
+                            }
+                            None => Ui::SpotError(format!("The composer draft was not saved: {}", e.message)),
+                        },
+                    }
+                });
+                false
+            }
+            Cmd::Resolve(text) => {
+                self.spawn_write(move |home, _| async move {
+                    match actions::resolve(&home, &text).await {
+                        Ok(url) => Ui::Open(url),
+                        Err(e) => Ui::SpotError(e.message),
+                    }
+                });
                 false
             }
             Cmd::RetryNow => {
@@ -365,6 +501,152 @@ impl Engine {
         self.model.workspace(self.settings().workspace.as_deref())
     }
 
+    /// Follows another workspace: its notifications start fresh (no burst for what was already there) and Go to's
+    /// lists of that workspace load again.
+    async fn switch_workspace(&mut self, id: String) {
+        self.save(|s| s.workspace = Some(id));
+        self.rules.reset();
+        self.rules.on_today(&self.today_items(), now(), false);
+        if self.home.is_some() && self.conn == Conn::Live {
+            for what in [Reload::Threads, Reload::Folios, Reload::LocalPrs] {
+                self.reload_soft(what).await;
+            }
+        }
+    }
+
+    /// Runs a write in its own task (the stream keeps flowing) and sends its result to the GTK side.
+    fn spawn_write<F, Fut>(&self, work: F)
+    where
+        F: FnOnce(Home, Links) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Ui> + Send + 'static,
+    {
+        let (Some(home), Some(links)) = (self.home.clone(), self.links()) else {
+            self.send(Ui::SpotError("Not connected to a Launchpad Home".into()));
+            return;
+        };
+        let ui = self.ui.clone();
+        tokio::spawn(async move {
+            let _ = ui.send(work(home, links).await).await;
+        });
+    }
+
+    /// Registers the ask before sending it, so no event of its session is missed: a new thread's session takes the
+    /// message's key as its ID; a reply continues the thread's session.
+    fn ask(&mut self, bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String) {
+        let session = session.unwrap_or_else(|| key.clone());
+        let watch = self.watches.entry(session.clone()).or_insert_with(|| Watch { key: key.clone(), bot: bot.clone(), thread: thread.clone(), events: Vec::new(), last_seq: 0, error: None });
+        watch.key = key.clone();
+        watch.error = None;
+        // Keep the newest asks only.
+        if self.watches.len() > 20 {
+            let oldest: Vec<String> = self.watches.keys().filter(|k| **k != session).take(self.watches.len() - 20).cloned().collect();
+            for k in oldest {
+                self.watches.remove(&k);
+            }
+        }
+        self.ask_view(&session);
+        let (tx, bot_id) = (self.tx.clone(), bot.id.clone());
+        let Some(home) = self.home.clone() else {
+            let _ = tx.send(Cmd::AskSent { session, thread: Err("Not connected to a Launchpad Home".into()) });
+            return;
+        };
+        tokio::spawn(async move {
+            let thread = actions::ask(&home, &bot_id, &text, thread.as_deref(), &key).await.map_err(|e| e.message);
+            let _ = tx.send(Cmd::AskSent { session, thread });
+        });
+    }
+
+    fn ask_view(&self, session: &str) {
+        let (Some(w), Some(links)) = (self.watches.get(session), self.links()) else { return };
+        let thread_url = match &w.thread {
+            Some(t) => links.page(&format!("/bots/{}", w.bot.id), &[("thread", t)]),
+            None => links.bot(&w.bot.id),
+        };
+        let view = AskView { key: w.key.clone(), session: session.to_string(), bot: w.bot.clone(), thread: w.thread.clone(), thread_url, answer: spot::answer(&w.events, &w.key), error: w.error.clone() };
+        self.send(Ui::Ask(Box::new(view)));
+    }
+
+    /// An event of a followed session (`session/<id>`); also learns a new thread's ID from its session record.
+    fn watch_event(&mut self, ev: &BusEvent) {
+        if let Some(sid) = ev.topic.strip_prefix("session/")
+            && let Some(w) = self.watches.get_mut(sid)
+        {
+            if let Some(body) = ev.payload.get("body") {
+                w.events.push(body.clone());
+            }
+            w.last_seq = w.last_seq.max(ev.payload.get("seq").and_then(Value::as_i64).unwrap_or(0));
+            let sid = sid.to_string();
+            self.ask_view(&sid);
+        } else if ev.topic == "sessions" && ev.kind == "updated"
+            && let Some(id) = ev.payload.get("id").and_then(Value::as_str)
+            && let Some(w) = self.watches.get_mut(id)
+            && w.thread.is_none()
+            && let Some(t) = ev.payload.pointer("/launch_spec/bot/thread").and_then(Value::as_str).filter(|t| !t.is_empty())
+        {
+            w.thread = Some(t.to_string());
+            let id = id.to_string();
+            self.ask_view(&id);
+        }
+    }
+
+    /// After a reopened stream: the events each unfinished ask missed (`GET /api/sessions/{id}/events?after=`).
+    async fn catch_up_asks(&mut self) {
+        let Some(home) = self.home.clone() else { return };
+        let open: Vec<(String, i64)> = self.watches.iter().filter(|(_, w)| !spot::answer(&w.events, &w.key).done).map(|(k, w)| (k.clone(), w.last_seq)).collect();
+        for (sid, after) in open {
+            let Ok(events) = home.get::<Vec<Value>>(&format!("/api/sessions/{sid}/events?after={after}")).await else { continue };
+            if let Some(w) = self.watches.get_mut(&sid) {
+                for e in events {
+                    w.last_seq = w.last_seq.max(e.get("seq").and_then(Value::as_i64).unwrap_or(0));
+                    if let Some(body) = e.get("body") {
+                        w.events.push(body.clone());
+                    }
+                }
+            }
+            self.ask_view(&sid);
+        }
+    }
+
+    /// The spotlight's data, sent again when the model, the workspace or the link state changed.
+    fn spot(&mut self) {
+        let ws = self.workspace();
+        let live = self.conn == Conn::Live && self.model.loaded;
+        let key = (self.model.version, ws.clone(), live);
+        if self.spot_key.as_ref() == Some(&key) {
+            return;
+        }
+        self.spot_key = Some(key);
+        let Some(links) = self.links() else {
+            self.send(Ui::Spot(Arc::new(SpotData::default())));
+            return;
+        };
+        let origin = self.home.as_ref().map(|h| h.link.origin.clone()).unwrap_or_default();
+        let data = match &ws {
+            Some(ws) => {
+                let mut newest: Vec<&model::Session> = self.model.sessions.values().filter(|s| s.launch_spec.bot.is_none() && self.model.session_in(s, ws) && s.project_id.is_some()).collect();
+                newest.sort_by_key(|s| std::cmp::Reverse(s.status_since));
+                SpotData {
+                    origin,
+                    workspace: Some(ws.clone()),
+                    workspace_name: self.model.workspaces.iter().find(|w| &w.id == ws).map(|w| w.name.clone()).unwrap_or_default(),
+                    live,
+                    entries: model::index(&self.model, ws, &links),
+                    bots: model::bot_infos(&self.model, ws),
+                    needs: model::status(&self.model, ws, &links).needs.rows.into_iter().map(|r| (r.label, r.url)).collect(),
+                    folders: {
+                        let mut f: Vec<FolderChoice> = self.model.folders.iter().filter(|f| !f.is_temp && f.workspace_id.as_deref() == Some(ws.as_str())).map(|f| FolderChoice { id: f.id.clone(), name: f.name.clone(), git: !f.plain }).collect();
+                        f.sort_by_key(|f| f.name.to_lowercase());
+                        f
+                    },
+                    profiles: self.model.profiles.clone(),
+                    newest_folder: newest.first().and_then(|s| s.project_id.clone()),
+                }
+            }
+            None => SpotData { origin, live, ..Default::default() },
+        };
+        self.send(Ui::Spot(Arc::new(data)));
+    }
+
     fn today_items(&self) -> Vec<model::TodayItem> {
         match self.workspace() {
             Some(ws) => self.model.today_in(&ws).cloned().collect(),
@@ -408,6 +690,7 @@ impl Engine {
     }
 
     fn emit(&mut self) {
+        self.spot();
         let view = self.view();
         if self.last_view.as_ref() != Some(&view) {
             self.last_view = Some(view.clone());
@@ -416,7 +699,7 @@ impl Engine {
     }
 
     fn notify(&self, note: Note) {
-        if !self.settings().notifications {
+        if !self.settings().notifying(now()) {
             return;
         }
         let url = match (self.links(), &note.item) {
@@ -468,8 +751,30 @@ impl Engine {
                 let today: model::Today = home.get("/api/today").await?;
                 self.model.today = today.items;
             }
+            Reload::Channels => self.model.channels = home.get("/api/channels").await?,
+            Reload::Profiles => {
+                let config: Value = home.get("/api/config").await?;
+                self.model.profiles = config.pointer("/config/profiles").cloned().and_then(|p| serde_json::from_value(p).ok()).unwrap_or_default();
+            }
+            Reload::Threads | Reload::Folios | Reload::LocalPrs => {
+                let Some(ws) = self.workspace() else { return Ok(()) };
+                let q: String = url::form_urlencoded::byte_serialize(ws.as_bytes()).collect();
+                match what {
+                    Reload::Threads => self.model.threads = home.get::<model::Threads>(&format!("/api/chat-threads?workspace={q}&archived=0")).await?.threads,
+                    Reload::Folios => self.model.folios = home.get(&format!("/api/folios/{q}")).await?,
+                    _ => self.model.local_prs = home.get(&format!("/api/predrafts?workspace={q}")).await?,
+                }
+            }
         }
+        self.model.version += 1;
         Ok(())
+    }
+
+    /// Go to's extra lists: a failure is logged and leaves the list as it was (never fails the stream).
+    async fn reload_soft(&mut self, what: Reload) {
+        if let Err(e) = self.reload(what).await {
+            tracing::info!("{what:?} not loaded: {}", e.message);
+        }
     }
 
     fn today_notes(&mut self, catch_up: bool) {
@@ -543,6 +848,10 @@ impl Engine {
                                 for what in [Reload::Workspaces, Reload::Folders, Reload::Bots, Reload::Sessions, Reload::Today] {
                                     if let Err(e) = self.reload(what).await { return Outcome::Failed(e) }
                                 }
+                                for what in [Reload::Threads, Reload::Channels, Reload::Folios, Reload::LocalPrs, Reload::Profiles] {
+                                    self.reload_soft(what).await;
+                                }
+                                self.catch_up_asks().await;
                                 self.model.loaded = true;
                                 self.conn = Conn::Live;
                                 live_at.get_or_insert_with(Instant::now);
@@ -555,8 +864,10 @@ impl Engine {
                                 // The stream's position: the bus number of the last event applied.
                                 if let Some(p) = &mut self.position { p.1 = frame.id.as_deref().and_then(sse::position).map_or(ev.bus, |(_, bus)| bus) }
                                 self.last_live = Some(now());
+                                self.watch_event(&ev);
                                 match self.model.apply(&ev) {
                                     Some(Reload::Today) => today_due = Some(Instant::now() + TODAY_DEBOUNCE),
+                                    Some(what @ (Reload::Threads | Reload::Channels | Reload::Folios | Reload::LocalPrs | Reload::Profiles)) => self.reload_soft(what).await,
                                     Some(what) => if let Err(e) = self.reload(what).await { return Outcome::Failed(e) },
                                     None => {}
                                 }
