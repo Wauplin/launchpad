@@ -240,7 +240,7 @@ The first release puts the Spotlight, the menu and linking first. These parts of
 - **A search provider for GNOME Activities**: the Spotlight covers search with its own shortcut.
 - **A GNOME Shell extension**: the standard tray icon needs none, and an extension must follow each GNOME release.
 - **KDE, other desktops and X11**: the first target is Ubuntu 26.04 GNOME on Wayland only.
-- **Ubuntu 24.04**: its GNOME 46 comes before GNOME's GlobalShortcuts portal backend, and the package is built against the libraries of 26.04.
+- **Ubuntu 24.04**: its GNOME 46 comes before GNOME 48, the first release with a GlobalShortcuts portal backend, and the package is built against the libraries of 26.04.
 - **Chat drafts on Home**: an ask handed to the browser goes through the clipboard until Home keeps chat drafts.
 - **An `lp:` link handler**: opening `lp:` IDs from other apps needs a URL scheme handler; paste them in the Spotlight for now.
 - **Several Homes**: one companion links to one Home.
@@ -282,7 +282,7 @@ The companion was built and tested on a machine without a desktop. These parts s
 - Hugging Face OAuth, loopback redirect URIs (any port for `http://127.0.0.1`), PKCE for public apps: https://huggingface.co/docs/hub/oauth
 - Ubuntu session mode of Ubuntu 26.04, which enables `ubuntu-appindicators@ubuntu.com` and `ubuntu-dock@ubuntu.com`: https://git.launchpad.net/ubuntu/+source/gnome-shell/plain/debian/ubuntu-session-mods/ubuntu.json?h=ubuntu/resolute, installed by gnome-shell-common: https://packages.ubuntu.com/resolute/all/gnome-shell-common/filelist
 - GNOME Shell 50.1 refuses notifications of an app without a desktop file (`InvalidAppError`): https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/50.1/js/ui/notificationDaemon.js
-- GNOME's GlobalShortcuts portal backend, added in the xdg-desktop-portal-gnome 47/48 cycle: https://gitlab.gnome.org/GNOME/xdg-desktop-portal-gnome/-/raw/50.0/NEWS
+- GNOME's GlobalShortcuts portal backend, added in xdg-desktop-portal-gnome 48.rc: https://gitlab.gnome.org/GNOME/xdg-desktop-portal-gnome/-/raw/50.0/NEWS
 - Host app registry of xdg-desktop-portal 1.21.1 (register the app ID once, before any portal call; it must match a desktop file): https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/1.21.1/data/org.freedesktop.host.portal.Registry.xml
 - GlobalShortcuts portal, version 2 in 1.21.1 (`BindShortcuts`, `ConfigureShortcuts`, `activation_token` in `Activated`): https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/1.21.1/data/org.freedesktop.portal.GlobalShortcuts.xml
 - GNOME's backend binds shortcuts per session (`BindShortcuts` grabs the keys; a new session lists none): https://gitlab.gnome.org/GNOME/xdg-desktop-portal-gnome/-/raw/50.0/src/globalshortcuts.c
