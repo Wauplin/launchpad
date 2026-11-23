@@ -8,11 +8,32 @@ It is a client of Home, like the Chrome extension. It holds one device of its ow
 
 ## Install
 
-The companion comes as a `.deb` package for **Ubuntu 26.04 on amd64** only.
+The companion comes as a `.deb` package for **Ubuntu 26.04 on amd64** only. The quickest way to install it is one command:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Wauplin/launchpad/main/desktop/packaging/install.sh | bash
+```
+
+This installs the newest build of `main` (the `main-build` prerelease). For the latest release instead, run `curl -fsSL https://raw.githubusercontent.com/Wauplin/launchpad/main/desktop/packaging/install.sh | bash -s -- --release`. While the latest release has no `.deb`, it stops with an error that says so.
+
+The script:
+
+- Checks that the machine runs Ubuntu 26.04 on amd64, and stops with a clear error otherwise.
+- Finds the newest `launchpad-desktop_<version>_amd64.deb` of `main-build` (or of the latest release) from GitHub's release data. It takes only a package that has its `.sha256` file.
+- Downloads it into a private temporary folder, which it removes when it ends.
+- Checks the file before it installs anything. Its SHA-256 must equal the digest GitHub gives for the asset and the published `.sha256` file. The package's own fields must say `launchpad-desktop`, `amd64` and the expected version.
+- Only then runs `sudo apt-get install`. Apt installs the libraries it needs (GTK 4) and recommends `gnome-keyring`, `xdg-desktop-portal-gnome` and `packagekit`.
+- Stops without changes when the same version is already installed. When a newer version is installed, it refuses and tells you to remove it first (`sudo apt remove launchpad-desktop`).
+
+Add `--dry-run` (`… | bash -s -- --dry-run`) to check without installing: the script finds, downloads and checks the package, then prints the apt command instead of running it. For tests, `LAUNCHPAD_DESKTOP_INSTALL_API` points the script at a local fake release server; it works only with `--dry-run`.
+
+To install by hand instead:
 
 1. Download `launchpad-desktop_<version>_amd64.deb` and its `.sha256` file from the [latest release](https://github.com/Wauplin/launchpad/releases/latest). Builds of the newest `main` commits are on the `main-build` prerelease.
 2. Check the download: `sha256sum -c launchpad-desktop_<version>_amd64.deb.sha256`.
-3. Install it: `sudo apt install ./launchpad-desktop_<version>_amd64.deb`. Apt installs the libraries it needs (GTK 4) and recommends `gnome-keyring`, `xdg-desktop-portal-gnome` and `packagekit`.
+3. Install it: `sudo apt install ./launchpad-desktop_<version>_amd64.deb`.
+
+A build of `main` has a version like `2026.11.23.0~main.165830.g614bccb`. GitHub stores the `~` of a file name as `.`, so its files are named `launchpad-desktop_2026.11.23.0.main.165830.g614bccb_amd64.deb` and `….deb.sha256`. The `.sha256` file still names the package with `~`, so `sha256sum -c` does not find the download. Rename the `.deb` to the name with `~` first, or run `sha256sum` on it and compare the result with the first word of the `.sha256` file. Release files have no `~` and need neither.
 
 The package installs:
 
@@ -224,7 +245,7 @@ The companion checks GitHub for a newer version 20 seconds after it starts, then
 The click:
 
 1. Downloads the package from the repository's release into a private folder in `~/.cache/launchpad-desktop/`.
-2. Checks it three ways. Its SHA-256 must equal the digest GitHub gives for the asset and the published `.sha256` file. Then the package's own fields must say `launchpad-desktop`, `amd64` and the offered version. Any mismatch refuses the package and deletes it.
+2. Checks it three ways. Its SHA-256 must equal the digest GitHub gives for the asset and the published `.sha256` file. A `main-build` file name has `.main.` where the version has `~main.` (see [Install](#install)); the companion reads the real version from the name, and accepts a `.sha256` file that names either form. Then the package's own fields must say `launchpad-desktop`, `amd64` and the offered version. Any mismatch refuses the package and deletes it.
 3. Installs it through PackageKit. Ubuntu asks for your password in its own dialog; that is your confirmation. Without PackageKit, it uses `pkexec apt-get install` instead. Without both, it shows the `sudo apt install` command to run.
 4. Restarts the companion in the new version, in the background.
 
