@@ -14,7 +14,7 @@ flowchart LR
     R2[Burst job] <-->|tunnel| D
 ```
 
-A Home in a Hugging Face Space is reached at the Space's address, behind the Hub's sign-in. The rest of this page is about a self-hosted Home.
+A Home in a Hugging Face Space is reached at the Space's address, behind the Hub's sign-in. There, **Settings → Devices** lists only connected apps (the Chrome extension and the desktop companion), with **Revoke**; browsers need no pairing. The rest of this page is about a self-hosted Home.
 
 By default the daemon listens only on `127.0.0.1`. Every paired browser has full access to Launchpad, so only pair your own devices and keep the daemon on a private network.
 
@@ -24,13 +24,15 @@ By default the daemon listens only on `127.0.0.1`. Every paired browser has full
 2. Scan the QR code with your phone, or open the link in the other browser.
 3. Enter a device name and click **Pair browser**.
 
-Pairing links work once and expire after five minutes. Browser credentials last one year. **Settings → Devices** lists paired browsers and revokes them.
+Pairing links work once and expire after five minutes. Browser credentials last one year. **Settings → Devices** lists every paired device with its kind (Browser, Chrome extension or Desktop companion) and when it was last active. **Revoke** signs a device out and closes its live streams; **Sign out** does the same for this browser. Both ask you to confirm first.
 
 ![Settings → Devices](images/devices.webp)
 
-**Reverse pairing**: on the unpaired browser, choose **Show pairing code**. On a paired device, enter the eight-character code in **Settings → Devices** and click **Approve browser**. Keep the requesting tab open until approval. Only approve a code you can see on your own device.
+**Reverse pairing**: on the unpaired browser, choose **Show pairing code**. On a paired device, enter the eight-character code in **Settings → Devices** and click **Approve browser**. Keep the requesting tab open until approval. Only approve a code you can see on your own device. When the code comes from the desktop companion, the dialog says so and the button reads **Approve desktop companion**.
 
 The [Chrome extension](../extension/README.md) pairs the same way with **Use an address**: it shows the code in its side panel. With a Home in a Space, it uses Sign in with Hugging Face instead. Either way, it shows in **Settings → Devices** as “Chrome on <system>”, and **Revoke** disconnects it at once.
+
+The Linux desktop companion is another client of the same kind. It pairs with a code like a browser (or connects to a Space through the gateway) and shows in **Settings → Devices** as a Desktop companion.
 
 ## Reach Home from other devices
 
