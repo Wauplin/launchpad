@@ -47,6 +47,8 @@ struct Ctx {
     prefs: RefCell<Option<gtk::Window>>,
     shortcut: RefCell<ShortcutState>,
     portal: RefCell<Option<mpsc::UnboundedSender<shortcut::PortalCmd>>>,
+    /// Where the shortcut paths report (kept to start the portal again after the custom shortcut is removed).
+    shortcut_events: RefCell<Option<async_channel::Sender<shortcut::Event>>>,
     /// Asks already notified as answered (by key).
     answered: RefCell<std::collections::HashSet<String>>,
 }
@@ -184,6 +186,7 @@ impl Ctx {
     fn on_spot(self: &Rc<Self>, out: spotlight::Out) {
         match out {
             spotlight::Out::Ask { bot, text, thread, session, key } => self.send(Cmd::Ask { bot, text, thread, session, key }),
+            spotlight::Out::Answer { session, request, count, text } => self.send(Cmd::Answer { session, request, count, text }),
             spotlight::Out::Open(url) => desktop::open(&url),
             spotlight::Out::Launch(text) => self.open_quick(&text),
             spotlight::Out::Handoff { text, bot: None } => self.send(Cmd::Handoff(text)),
@@ -276,6 +279,12 @@ impl Ctx {
                     desktop::open(url);
                 }
             }
+            // An empty message clears the footer's error (an answer went through) and never opens the spotlight.
+            Ui::SpotError(e) if e.is_empty() => {
+                if let Some(s) = self.spotlight.borrow().as_ref() {
+                    s.error("");
+                }
+            }
             Ui::SpotError(e) => {
                 tracing::info!("spotlight: {e}");
                 let spot = self.spotlight();
@@ -336,6 +345,7 @@ impl Ctx {
 
     /// Starts the portal path (unless the owner chose the custom shortcut or none); its failure says why in the menu.
     fn start_shortcut(self: &Rc<Self>, events: async_channel::Sender<shortcut::Event>) {
+        *self.shortcut_events.borrow_mut() = Some(events.clone());
         let s = self.settings.lock().unwrap().clone();
         if s.shortcut_mode != "portal" {
             let state = match shortcut::custom::installed() {
@@ -395,11 +405,22 @@ impl Ctx {
                 let trigger = self.settings.lock().unwrap().shortcut.clone();
                 let result = if on { shortcut::custom::install(&shortcut::gnome_accel(&trigger), "launchpad-desktop --toggle") } else { shortcut::custom::remove() };
                 match result {
-                    Ok(()) => {
-                        self.save(|s| s.shortcut_mode = if on { "custom".into() } else { "off".into() });
-                        let state = if on { ShortcutState::Custom(shortcut::words(&trigger)) } else { ShortcutState::Unavailable("No global shortcut is set".into()) };
+                    // The custom shortcut replaces the portal's (both on the same keys would toggle twice): dropping
+                    // the portal's sender ends its session. Removing it goes back to the portal.
+                    Ok(()) if on => {
+                        self.portal.borrow_mut().take();
+                        self.save(|s| s.shortcut_mode = "custom".into());
+                        let state = ShortcutState::Custom(shortcut::words(&trigger));
                         tracing::info!("{}", state.label());
                         *self.shortcut.borrow_mut() = state;
+                    }
+                    Ok(()) => {
+                        self.save(|s| s.shortcut_mode = "portal".into());
+                        *self.shortcut.borrow_mut() = ShortcutState::Starting;
+                        let events = self.shortcut_events.borrow().clone();
+                        if let Some(events) = events {
+                            self.start_shortcut(events);
+                        }
                     }
                     Err(e) => tracing::warn!("GNOME custom shortcut: {e}"),
                 }
@@ -515,6 +536,7 @@ fn main() -> glib::ExitCode {
             prefs: RefCell::new(None),
             shortcut: RefCell::new(ShortcutState::Starting),
             portal: RefCell::new(None),
+            shortcut_events: RefCell::new(None),
             answered: RefCell::new(Default::default()),
         });
         // The spotlight is built now, hidden, so the shortcut shows it at once.

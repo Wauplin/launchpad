@@ -32,6 +32,9 @@ pub struct Folder {
     /// A plain folder (no Git): launches get no worktree.
     #[serde(default)]
     pub plain: bool,
+    /// The folder's own When done, the web composer's default for a launch there.
+    #[serde(default)]
+    pub when_done: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -114,7 +117,7 @@ pub struct LocalPr {
     pub created_at: i64,
 }
 
-/// A profile (`GET /api/config`, `config.profiles`): the quick launch's choices.
+/// A profile (`GET /api/context/profiles`: never its environment): the quick launch's choices.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 pub struct Profile {
     pub id: String,

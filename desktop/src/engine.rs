@@ -54,6 +54,8 @@ pub enum Cmd {
     NextWorkspace,
     /// Ask a bot: a new thread, or a reply in `thread` (whose session is `session`). `key` is the Idempotency-Key.
     Ask { bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String },
+    /// Typed text answering the open question `request` of `session` (`POST /api/sessions/{id}/answer`).
+    Answer { session: String, request: String, count: usize, text: String },
     /// Quick launch (`POST /api/sessions`); `key` is the Idempotency-Key.
     Launch { spec: Value, key: String },
     /// Continue in the browser composer with this text.
@@ -127,6 +129,8 @@ pub struct FolderChoice {
     pub name: String,
     /// A Git folder: the launch gets a worktree and When done.
     pub git: bool,
+    /// The folder's own When done (the web composer's default there).
+    pub when_done: Option<String>,
 }
 
 /// What the spotlight and the quick launch need, rebuilt when the model or the workspace changes.
@@ -385,6 +389,15 @@ impl Engine {
                 self.ask_view(&session);
                 false
             }
+            Cmd::Answer { session, request, count, text } => {
+                self.spawn_write(move |home, _| async move {
+                    match actions::answer(&home, &session, &request, count, &text).await {
+                        Ok(()) => Ui::SpotError(String::new()),
+                        Err(e) => Ui::SpotError(format!("Not answered: {}", e.message)),
+                    }
+                });
+                false
+            }
             Cmd::Launch { spec, key } => {
                 self.spawn_write(move |home, links| async move {
                     match actions::launch(&home, &spec, &key).await {
@@ -634,7 +647,7 @@ impl Engine {
                     bots: model::bot_infos(&self.model, ws),
                     needs: model::status(&self.model, ws, &links).needs.rows.into_iter().map(|r| (r.label, r.url)).collect(),
                     folders: {
-                        let mut f: Vec<FolderChoice> = self.model.folders.iter().filter(|f| !f.is_temp && f.workspace_id.as_deref() == Some(ws.as_str())).map(|f| FolderChoice { id: f.id.clone(), name: f.name.clone(), git: !f.plain }).collect();
+                        let mut f: Vec<FolderChoice> = self.model.folders.iter().filter(|f| !f.is_temp && f.workspace_id.as_deref() == Some(ws.as_str())).map(|f| FolderChoice { id: f.id.clone(), name: f.name.clone(), git: !f.plain, when_done: f.when_done.clone() }).collect();
                         f.sort_by_key(|f| f.name.to_lowercase());
                         f
                     },
@@ -752,9 +765,11 @@ impl Engine {
                 self.model.today = today.items;
             }
             Reload::Channels => self.model.channels = home.get("/api/channels").await?,
+            // Like the extension: `/api/context/profiles` (id, name, harness, never their environment), not
+            // `/api/config`.
             Reload::Profiles => {
-                let config: Value = home.get("/api/config").await?;
-                self.model.profiles = config.pointer("/config/profiles").cloned().and_then(|p| serde_json::from_value(p).ok()).unwrap_or_default();
+                let list: Value = home.get("/api/context/profiles").await?;
+                self.model.profiles = list.get("profiles").cloned().and_then(|p| serde_json::from_value(p).ok()).unwrap_or_default();
             }
             Reload::Threads | Reload::Folios | Reload::LocalPrs => {
                 let Some(ws) = self.workspace() else { return Ok(()) };

@@ -18,6 +18,14 @@ pub async fn ask(home: &Home, bot: &str, text: &str, thread: Option<&str>, key: 
     Ok(receipt.get("thread").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 
+/// Typed text answering an open question (`session.answer`: one answer per question, like the web chat's box).
+/// Never a permission request: the spotlight refuses those before (Allow and Deny stay the owner's clicks in the
+/// browser; typed text is never an approval).
+pub async fn answer(home: &Home, session: &str, request: &str, count: usize, text: &str) -> Result<(), HomeError> {
+    let body = json!({"request_id": request, "answers": vec![text; count.max(1)]});
+    home.write(reqwest::Method::POST, &format!("/api/sessions/{session}/answer"), &body, None).await.map(|_| ())
+}
+
 /// What the quick launch sends (`POST /api/sessions`): the prompt, a profile, a folder (a temporary one when None)
 /// with a fresh worktree that keeps its changes (`when_done`), Home's defaults for the rest. Never publishes on
 /// GitHub (`draft_pr`/`open_pr` are not offered) and never enables paid usage.
@@ -35,6 +43,17 @@ pub fn launch_spec(text: &str, profile: &crate::model::Profile, folder: Option<(
 
 /// The quick launch's choices of When done for a Git folder (the publishing ones stay in the browser).
 pub const WHEN_DONE: &[(&str, &str)] = &[("keep", "Keep the branch"), ("local_pr", "Open a Local PR"), ("merge", "Merge when done"), ("read_only", "Read only")];
+
+/// The quick launch's default When done for a folder: the folder's own, like the web composer; a folder that
+/// publishes on GitHub (Draft PR, Open PR) gets a Local PR, since the quick launch never publishes.
+pub fn default_when_done(folder: Option<&str>) -> usize {
+    let key = match folder {
+        Some("draft_pr" | "open_pr") => "local_pr",
+        Some(k) => k,
+        None => "keep",
+    };
+    WHEN_DONE.iter().position(|(k, _)| *k == key).unwrap_or(0)
+}
 
 pub async fn launch(home: &Home, spec: &Value, key: &str) -> Result<crate::model::Session, HomeError> {
     let session = home.write(reqwest::Method::POST, "/api/sessions", spec, Some(key)).await?;
@@ -122,5 +141,7 @@ mod tests {
         assert_eq!(launch_spec("go", &p, None, "keep", "w1")["target"], json!({"kind": "temp"}));
         assert!(share_url(&Links::new("http://h", "w"), &"x".repeat(2001)).is_none());
         assert_eq!(share_url(&Links::new("http://h", "w"), "a b").unwrap(), "http://h/?share_text=a+b&ws=w");
+        let at = |k: &str| WHEN_DONE[default_when_done(Some(k))].0;
+        assert_eq!((at("merge"), at("open_pr"), at("draft_pr"), at("read_only"), WHEN_DONE[default_when_done(None)].0), ("merge", "local_pr", "local_pr", "read_only", "keep"));
     }
 }

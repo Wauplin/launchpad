@@ -104,7 +104,10 @@ impl QuickLaunch {
             dd.connect_selected_notify(move |_| s.renew());
         }
         let s = q.clone();
-        q.folder.connect_selected_notify(move |_| s.update_when_done());
+        q.folder.connect_selected_notify(move |_| {
+            s.select_folder_default();
+            s.update_when_done();
+        });
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         let s = q.clone();
@@ -125,6 +128,13 @@ impl QuickLaunch {
     fn renew(&self) {
         *self.key.borrow_mut() = crate::spot::new_key();
         self.status.set_text("");
+    }
+
+    /// The chosen folder's own When done (the web composer's default).
+    fn select_folder_default(&self) {
+        let i = self.folder.selected() as usize;
+        let wd = i.checked_sub(1).and_then(|i| self.data.borrow().folders.get(i).and_then(|f| f.when_done.clone()));
+        self.when_done.set_selected(actions::default_when_done(wd.as_deref()) as u32);
     }
 
     fn update_when_done(&self) {
@@ -155,8 +165,8 @@ impl QuickLaunch {
         let profiles: Vec<String> = data.profiles.iter().map(|p| if p.name.is_empty() { p.id.clone() } else { format!("{} ({})", p.name, p.harness) }).collect();
         self.profile.set_model(Some(&strings(&profiles)));
         self.profile.set_selected(last_profile.and_then(|id| data.profiles.iter().position(|p| p.id == id)).unwrap_or(0) as u32);
-        self.when_done.set_selected(0);
         *self.data.borrow_mut() = data;
+        self.select_folder_default();
         self.prompt.buffer().set_text(prompt);
         self.update_when_done();
         let ready = !self.data.borrow().profiles.is_empty();

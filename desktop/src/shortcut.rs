@@ -83,9 +83,15 @@ pub fn words(trigger: &str) -> String {
         .join("+")
 }
 
-/// The portal path: register the app ID, open a session, bind the shortcut unless GNOME already has it (so the
-/// consent dialog shows once), then forward each activation. Ends with an error when the portal is missing or the
-/// owner refused; the caller then says so in the menu.
+/// The portal path: register the app ID, open a session, bind the shortcut, then forward each activation. Ends with
+/// an error when the portal is missing or the owner refused; the caller then says so in the menu. Dropping `cmds`'s
+/// sender ends it and closes the session (the owner chose the GNOME custom shortcut instead).
+///
+/// Binding runs at every start, by design: GNOME's backend (xdg-desktop-portal-gnome 50.0 `globalshortcuts.c`)
+/// lists only the shortcuts bound in the current session (a new session lists none) and grabs the keys
+/// (`GrabAccelerators`) only on `BindShortcuts`, so a session that does not bind is never activated. GNOME Settings'
+/// provider (gnome-control-center 50.0 `cc-global-shortcut-dialog.c`) stores the shortcuts per app ID and shows its
+/// consent dialog only when the request has shortcuts it has not stored yet, so the dialog appears once.
 pub async fn portal(trigger: String, events: async_channel::Sender<Event>, mut cmds: tokio::sync::mpsc::UnboundedReceiver<PortalCmd>) -> anyhow::Result<()> {
     use ashpd::desktop::global_shortcuts::{BindShortcutsOptions, GlobalShortcuts, NewShortcut};
     let conn = ashpd::zbus::Connection::session().await?;
@@ -97,17 +103,12 @@ pub async fn portal(trigger: String, events: async_channel::Sender<Event>, mut c
     let gs = GlobalShortcuts::with_connection(conn).await?;
     tracing::info!("GlobalShortcuts portal version {}", gs.version());
     let session = gs.create_session(Default::default()).await?;
-    let listed = gs.list_shortcuts(&session, Default::default()).await?.response()?;
-    let mut keys = listed.shortcuts().iter().find(|s| s.id() == ID).map(|s| s.trigger_description().to_string());
-    if keys.is_none() {
-        let shortcut = NewShortcut::new(ID, "Open the Launchpad spotlight").preferred_trigger(Some(trigger.as_str()));
-        let bound = gs.bind_shortcuts(&session, &[shortcut], None, BindShortcutsOptions::default()).await?.response()?;
-        keys = bound.shortcuts().iter().find(|s| s.id() == ID).map(|s| s.trigger_description().to_string());
-        if keys.is_none() {
-            anyhow::bail!("the shortcut was not bound (refused in GNOME's dialog)");
-        }
-    }
-    let shown = keys.filter(|k| !k.is_empty()).unwrap_or_else(|| words(&trigger));
+    let shortcut = NewShortcut::new(ID, "Open the Launchpad spotlight").preferred_trigger(Some(trigger.as_str()));
+    let bound = gs.bind_shortcuts(&session, &[shortcut], None, BindShortcutsOptions::default()).await?.response()?;
+    let Some(keys) = bound.shortcuts().iter().find(|s| s.id() == ID).map(|s| s.trigger_description().to_string()) else {
+        anyhow::bail!("the shortcut was not bound (refused in GNOME's dialog)");
+    };
+    let shown = Some(keys).filter(|k| !k.is_empty()).unwrap_or_else(|| words(&trigger));
     tracing::info!("global shortcut through the portal: {shown}");
     let _ = events.send(Event::State(State::Portal(shown))).await;
     let mut activated = gs.receive_activated().await?;
@@ -133,7 +134,10 @@ pub async fn portal(trigger: String, events: async_channel::Sender<Event>, mut c
                         tracing::warn!("configure shortcuts: {e}");
                     }
                 }
-                None => return Ok(()),
+                None => {
+                    let _ = session.close().await;
+                    return Ok(());
+                }
             },
         }
     }

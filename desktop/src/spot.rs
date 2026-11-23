@@ -241,7 +241,17 @@ pub struct Answer {
     pub text: String,
     pub done: bool,
     pub question: Option<String>,
+    /// The open question's request (`session.answer` takes its ID and one answer per question); a permission
+    /// request is never answered by typed text (Allow and Deny stay in the browser).
+    pub request: Option<Request>,
     pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Request {
+    pub id: String,
+    pub count: usize,
+    pub permission: bool,
 }
 
 pub fn answer(bodies: &[Value], client_id: &str) -> Answer {
@@ -270,10 +280,19 @@ pub fn answer(bodies: &[Value], client_id: &str) -> Answer {
                 live.clear();
             }
             "ask_user" => {
-                let q = body.get("questions").and_then(Value::as_array).and_then(|q| q.first()).and_then(|q| q.get("question")).and_then(Value::as_str).unwrap_or("The bot asks you something");
+                let questions = body.get("questions").and_then(Value::as_array).cloned().unwrap_or_default();
+                let q = questions.first().and_then(|q| q.get("question")).and_then(Value::as_str).unwrap_or("The bot asks you something");
                 a.question = Some(q.to_string());
+                a.request = body.get("request_id").and_then(Value::as_str).map(|id| Request {
+                    id: id.to_string(),
+                    count: questions.len().max(1),
+                    permission: questions.iter().any(|q| q.get("permission").and_then(Value::as_bool).unwrap_or(false)),
+                });
             }
-            "ask_answered" => a.question = None,
+            "ask_answered" => {
+                a.question = None;
+                a.request = None;
+            }
             "turn_end" => {
                 a.done = true;
                 a.error = body.get("error").and_then(Value::as_str).map(str::to_string);
@@ -385,9 +404,15 @@ mod tests {
         more.push(json!({"kind": "assistant_message", "item_id": "c", "text": "Because the cache expired."}));
         more.push(json!({"kind": "turn_end", "duration_ms": 1, "interrupted": false, "error": null}));
         more.push(json!({"kind": "user_message", "text": "next", "client_id": "k2", "queued": false}));
-        assert_eq!(answer(&more, "k1"), Answer { received: true, text: "Because the cache expired.".into(), done: true, question: None, error: None });
+        assert_eq!(answer(&more, "k1"), Answer { received: true, text: "Because the cache expired.".into(), done: true, question: None, request: None, error: None });
         assert!(!answer(&bodies, "k9").received);
         let asking = vec![json!({"kind": "user_message", "client_id": "k1", "text": "x", "queued": false}), json!({"kind": "ask_user", "request_id": "r", "questions": [{"question": "Which branch?"}]})];
         assert_eq!(answer(&asking, "k1").question.as_deref(), Some("Which branch?"));
+        assert_eq!(answer(&asking, "k1").request, Some(Request { id: "r".into(), count: 1, permission: false }));
+        let mut permission = asking.clone();
+        permission[1] = json!({"kind": "ask_user", "request_id": "p", "questions": [{"question": "Run rm?", "permission": true}, {"question": "And?"}]});
+        assert_eq!(answer(&permission, "k1").request, Some(Request { id: "p".into(), count: 2, permission: true }));
+        permission.push(json!({"kind": "ask_answered", "request_id": "p", "answers": ["Allow"]}));
+        assert_eq!(answer(&permission, "k1").request, None);
     }
 }

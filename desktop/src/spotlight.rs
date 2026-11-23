@@ -18,6 +18,8 @@ use crate::spot::{self, Act, BotInfo, Kept, Row, Target};
 pub enum Out {
     /// `key`: the message's Idempotency-Key (a new thread's session ID).
     Ask { bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String },
+    /// Typed text that answers the open question of `session` (`session.answer`, like the web chat's box).
+    Answer { session: String, request: String, count: usize, text: String },
     Open(String),
     /// Opens the quick launch form with this prompt.
     Launch(String),
@@ -42,6 +44,8 @@ struct State {
     ask: Option<AskView>,
     /// The key of the last message the spotlight sent: it follows that ask only.
     sent: Option<String>,
+    /// Ctrl+Enter on a new ask: open its thread once Home names it (the key of that ask).
+    open_when_known: Option<String>,
     error: Option<String>,
 }
 
@@ -356,6 +360,20 @@ impl Spotlight {
         let text = self.entry.text().to_string();
         let reply = self.state.borrow().ask.clone().filter(|_| !text.trim().is_empty() && !text.starts_with(['>', '/', '@']));
         if let Some(a) = reply {
+            // An open question takes the typed text as its answer (a new message would wait behind it); a
+            // permission request never does.
+            if let Some(r) = a.answer.request.clone() {
+                if r.permission {
+                    self.error("This is a permission request: Allow or Deny it in the browser (Ctrl+O)");
+                    return;
+                }
+                (self.out)(Out::Answer { session: a.session.clone(), request: r.id, count: r.count, text: text.trim().to_string() });
+                self.entry.set_text("");
+                if ctrl {
+                    self.open_thread();
+                }
+                return;
+            }
             self.send_ask(a.bot.clone(), text.trim().to_string(), a.thread.clone(), Some(a.session.clone()));
             if ctrl {
                 self.open_thread();
@@ -371,10 +389,9 @@ impl Spotlight {
         let Some(act) = self.selected() else { return };
         match act {
             Act::Ask { bot, text } => {
-                self.send_ask(bot, text, None, None);
-                if ctrl {
-                    self.open_thread();
-                }
+                let key = self.send_ask(bot, text, None, None);
+                // The new thread is known only once Home accepted the message (`on_ask`).
+                self.state.borrow_mut().open_when_known = ctrl.then_some(key);
             }
             Act::Open(url) => {
                 let label = self.list.selected_row().and_then(|r| r.child()).and_then(|c| c.downcast::<gtk::Label>().ok()).map(|l| l.text().to_string()).unwrap_or_default();
@@ -416,15 +433,17 @@ impl Spotlight {
         }
     }
 
-    fn send_ask(&self, bot: BotInfo, text: String, thread: Option<String>, session: Option<String>) {
+    fn send_ask(&self, bot: BotInfo, text: String, thread: Option<String>, session: Option<String>) -> String {
         let key = spot::new_key();
         {
             let mut st = self.state.borrow_mut();
             st.error = None;
             st.sent = Some(key.clone());
+            st.open_when_known = None;
         }
-        (self.out)(Out::Ask { bot, text, thread, session, key });
+        (self.out)(Out::Ask { bot, text, thread, session, key: key.clone() });
         self.entry.set_text("");
+        key
     }
 
     /// A new state of an ask (from the engine). The spotlight follows the latest one it sent.
@@ -436,6 +455,12 @@ impl Spotlight {
             }
             st.ask = Some(view.clone());
         }
+        let open = view.thread.is_some() && self.state.borrow().open_when_known.as_deref() == Some(view.key.as_str());
+        if open {
+            self.state.borrow_mut().open_when_known = None;
+            self.open_thread();
+            return;
+        }
         let a = &view.answer;
         let state = match (&view.error, a.done, &a.question, a.received) {
             (Some(e), _, _, _) => format!("not sent: {e}"),
@@ -446,7 +471,8 @@ impl Spotlight {
         };
         self.answer_head.set_text(&format!("{} · {state}", view.bot.name));
         let mut text = match (&a.question, a.text.is_empty()) {
-            (Some(q), _) => format!("{q}\n\nAnswer in the browser (Ctrl+O), or type a reply."),
+            (Some(q), _) if a.request.as_ref().is_some_and(|r| r.permission) => format!("{q}\n\nA permission request: Allow or Deny it in the browser (Ctrl+O)."),
+            (Some(q), _) => format!("{q}\n\nType your answer, or answer in the browser (Ctrl+O)."),
             (None, true) if a.done => a.error.clone().map(|e| format!("The turn ended with an error: {e}")).unwrap_or_else(|| "The bot ended its turn without an answer.".into()),
             (None, true) => String::new(),
             (None, false) => a.text.clone(),
@@ -460,8 +486,9 @@ impl Spotlight {
         self.refresh_rows();
     }
 
+    /// An error for the footer; an empty one clears it.
     pub fn error(&self, message: &str) {
-        self.state.borrow_mut().error = Some(message.to_string());
+        self.state.borrow_mut().error = Some(message.to_string()).filter(|m| !m.is_empty());
         self.update_footer();
     }
 
