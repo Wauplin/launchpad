@@ -11,9 +11,26 @@ pub struct Frame {
 #[derive(Default)]
 pub struct Parser {
     buffer: String,
+    /// The bytes of a UTF-8 character cut by a chunk boundary, completed by the next chunk.
+    partial: Vec<u8>,
 }
 
 impl Parser {
+    /// Adds a chunk of the response's bytes (`push` once decoded): a multi-byte character split between two chunks
+    /// (a title with "·" or an accent) is decoded whole, never as replacement characters.
+    pub fn push_bytes(&mut self, chunk: &[u8]) -> Vec<Frame> {
+        self.partial.extend_from_slice(chunk);
+        let bytes = std::mem::take(&mut self.partial);
+        let (text, rest) = match std::str::from_utf8(&bytes) {
+            Ok(text) => (text.to_string(), Vec::new()),
+            // Incomplete at the end (`error_len` None): keep that tail for the next chunk.
+            Err(e) if e.error_len().is_none() => (String::from_utf8_lossy(&bytes[..e.valid_up_to()]).into_owned(), bytes[e.valid_up_to()..].to_vec()),
+            Err(_) => (String::from_utf8_lossy(&bytes).into_owned(), Vec::new()),
+        };
+        self.partial = rest;
+        self.push(&text)
+    }
+
     /// Adds a chunk and returns the events it completed. Comments (keepalives) and `retry:` are dropped; a block
     /// without data is not an event.
     pub fn push(&mut self, chunk: &str) -> Vec<Frame> {
@@ -62,5 +79,11 @@ mod tests {
         assert_eq!(got, vec![Frame { id: Some("b1:42".into()), data: "{\"a\":1}".into() }, Frame { id: Some("b1:43".into()), data: "x\ny".into() }]);
         assert_eq!(position("b1:43"), Some(("b1".into(), 43)));
         assert_eq!(position("nonsense"), None);
+        // A character split between two chunks.
+        let mut p = Parser::default();
+        let line = "data: {\"title\":\"Fix · café\"}\n\n".as_bytes();
+        let cut = line.iter().position(|b| *b == 0xC2).unwrap() + 1;
+        assert!(p.push_bytes(&line[..cut]).is_empty());
+        assert_eq!(p.push_bytes(&line[cut..]), vec![Frame { id: None, data: "{\"title\":\"Fix · café\"}".into() }]);
     }
 }

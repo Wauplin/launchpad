@@ -36,6 +36,9 @@ struct Ctx {
     /// The first launch asked for the link window when not linked (not `--background`).
     want_link: Cell<bool>,
     seen_view: Cell<bool>,
+    /// An action asked for before the engine's first view (the shortcut started the companion): run once it knows
+    /// whether a Home is linked.
+    pending: RefCell<Option<Action>>,
 }
 
 impl Ctx {
@@ -95,6 +98,9 @@ impl Ctx {
                 self.refresh();
                 if first && !linked && self.want_link.get() {
                     self.open_link_window();
+                }
+                if first && let Some(action) = self.pending.take() {
+                    self.run(action);
                 }
             }
             Ui::Notify { note, url } => desktop::notify(&self.app, &note, &url),
@@ -185,13 +191,17 @@ impl Ctx {
             _ => return 2,
         };
         // Before the first view the engine does not know the link yet: actions other than connect and quit wait for it.
-        let linked = self.view.borrow().linked;
         match action {
             Action::Connect | Action::Quit => self.on_action(action),
-            _ if !linked => self.open_link_window(),
-            _ => self.on_action(action),
+            _ if !self.seen_view.get() => *self.pending.borrow_mut() = Some(action),
+            _ => self.run(action),
         }
         0
+    }
+
+    /// A launch's action once the link is known: the link window when not linked.
+    fn run(self: &Rc<Self>, action: Action) {
+        if self.view.borrow().linked { self.on_action(action) } else { self.open_link_window() }
     }
 }
 
@@ -253,6 +263,7 @@ fn main() -> glib::ExitCode {
             badge: Cell::new(None),
             want_link: Cell::new(false),
             seen_view: Cell::new(false),
+            pending: RefCell::new(None),
         });
         let ui = c.clone();
         glib::spawn_future_local(async move {

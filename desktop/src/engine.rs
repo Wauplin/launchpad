@@ -28,6 +28,9 @@ const SILENT: Duration = Duration::from_secs(45);
 const TODAY_DEBOUNCE: Duration = Duration::from_millis(300);
 /// Offline or starting this long: one notification.
 const SAY_OFFLINE_MS: i64 = 2 * 60_000;
+/// A stream that was live at least this long resets the retry delays; shorter ones count as failures, so a Home or
+/// proxy that drops every stream at once is not asked again every second.
+const STEADY: Duration = Duration::from_secs(30);
 /// Reverse pairing: Home allows one poll every 2 s.
 const POLL: Duration = Duration::from_millis(2500);
 
@@ -127,6 +130,8 @@ pub struct Engine {
     hf_pending: Option<HfAuth>,
     /// The state a notification was last sent about (offline, revoked…), so each says it once.
     said: Option<String>,
+    /// Streams in a row that ended within `STEADY` of opening.
+    drops: u32,
     last_view: Option<View>,
 }
 
@@ -150,8 +155,8 @@ struct Version {
 }
 
 enum Outcome {
-    /// The stream ended or went silent after it was open.
-    Ended,
+    /// The stream ended or went silent after it was live; `steady`: it stayed live at least `STEADY`.
+    Ended { steady: bool },
     Failed(HomeError),
     /// A command changed the link: start over.
     Changed,
@@ -176,6 +181,7 @@ impl Engine {
             link_task: None,
             hf_pending: None,
             said: None,
+            drops: 0,
             last_view: None,
         };
         (engine, tx)
@@ -229,8 +235,15 @@ impl Engine {
                 continue;
             }
             match self.stream().await {
-                Outcome::Changed => continue,
-                Outcome::Ended => self.conn = Conn::Connecting { attempt: 0 },
+                // Incompatible says so once (`say_state`); a changed link says nothing.
+                Outcome::Changed => {
+                    self.say_state();
+                    continue;
+                }
+                Outcome::Ended { steady } => {
+                    self.drops = if steady { 0 } else { self.drops + 1 };
+                    self.conn = Conn::Connecting { attempt: self.drops };
+                }
                 Outcome::Failed(e) => {
                     tracing::info!("Home: {}", e.message);
                     self.conn = self.conn.failed(&e.failure, now(), self.last_live);
@@ -310,6 +323,7 @@ impl Engine {
                 self.position = None;
                 self.problem = None;
                 self.said = None;
+                self.drops = 0;
                 self.send(Ui::Link(LinkMsg::Done));
                 if first {
                     self.send(Ui::Linked);
@@ -476,8 +490,10 @@ impl Engine {
                     return Outcome::Changed;
                 }
             }
-            // No `/api/version` (a 404, or an older Home's page): Home is older than the companion.
-            Err(HomeError { failure: Failure::Other, .. }) => {
+            // No `/api/version` (Home's 404 for an unknown route): Home is older than the companion. Other failures
+            // (a 500, a proxy's page) are retried, never taken as an old Home.
+            // On a Space only the daemon's own 404 counts (the Hub hides a Space it refuses behind its own 404 page).
+            Err(HomeError { status: 404, message, .. }) if home.link.kind != HomeKind::Space || message == "no such route" => {
                 self.conn = Conn::Incompatible(conn::compatibility(None, 0, &[]).unwrap_or_default());
                 return Outcome::Changed;
             }
@@ -487,6 +503,12 @@ impl Engine {
             Ok(r) => r,
             Err(e) => return Outcome::Failed(e),
         };
+        // Not Home's stream (a Space's waking page answered 200): retried, never read as events.
+        if !response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("text/event-stream")) {
+            let failure = if home.link.kind == HomeKind::Space { Failure::Starting } else { Failure::Other };
+            return Outcome::Failed(HomeError { failure, message: "Home answered something other than its event stream".into(), status: response.status().as_u16() });
+        }
+        let mut live_at: Option<Instant> = None;
         let catch_up = self.rules_primed_after_gap();
         let mut body = response.bytes_stream();
         let mut parser = sse::Parser::default();
@@ -506,11 +528,12 @@ impl Engine {
                 chunk = body.next() => {
                     let chunk = match chunk {
                         Some(Ok(c)) => c,
-                        Some(Err(e)) => return if self.conn == Conn::Live { Outcome::Ended } else { Outcome::Failed(HomeError { failure: Failure::Network, message: e.to_string() }) },
-                        None => return Outcome::Ended,
+                        // Before the stream went live, an end is a failed attempt (backoff), not a drop.
+                        Some(Err(e)) => return ended(live_at, e.to_string()),
+                        None => return ended(live_at, "the stream ended".into()),
                     };
                     silent.as_mut().reset(tokio::time::Instant::now() + SILENT);
-                    for frame in parser.push(&String::from_utf8_lossy(&chunk)) {
+                    for frame in parser.push_bytes(&chunk) {
                         let Ok(ev) = serde_json::from_str::<BusEvent>(&frame.data) else { continue };
                         match ev.kind.as_str() {
                             "hello" => offered = Some((ev.boot.clone().unwrap_or_default(), ev.bus)),
@@ -522,6 +545,7 @@ impl Engine {
                                 }
                                 self.model.loaded = true;
                                 self.conn = Conn::Live;
+                                live_at.get_or_insert_with(Instant::now);
                                 self.last_live = Some(now());
                                 self.today_notes(first_load && catch_up);
                                 first_load = false;
@@ -547,7 +571,7 @@ impl Engine {
                     self.today_notes(false);
                     self.emit();
                 }
-                _ = &mut silent => return Outcome::Ended,
+                _ = &mut silent => return ended(live_at, "the stream went silent".into()),
                 cmd = self.cmds.recv() => {
                     let Some(cmd) = cmd else { return Outcome::Changed };
                     if self.command(cmd).await { return Outcome::Changed }
@@ -669,6 +693,14 @@ impl Engine {
             }
         });
         self.link_task = Some(task.abort_handle());
+    }
+}
+
+/// How a stream ended: a drop once it was live, else a failed attempt.
+fn ended(live_at: Option<Instant>, why: String) -> Outcome {
+    match live_at {
+        Some(at) => Outcome::Ended { steady: at.elapsed() >= STEADY },
+        None => Outcome::Failed(HomeError { failure: Failure::Network, message: why, status: 0 }),
     }
 }
 

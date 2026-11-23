@@ -108,9 +108,24 @@ impl HfAuth {
     }
 }
 
+/// The Hub could not be asked (no network, a 5xx or 429 of the Hub): not a refusal of the sign-in, so the companion
+/// retries instead of asking the owner to sign in again (a laptop that wakes offline with an expired access token).
+#[derive(Debug)]
+pub struct Transient(pub String);
+
+impl std::fmt::Display for Transient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Hugging Face does not answer: {}", self.0)
+    }
+}
+impl std::error::Error for Transient {}
+
 async fn token(http: &reqwest::Client, form: &[(&str, &str)]) -> anyhow::Result<TokenAnswer> {
-    let response = http.post(format!("{HUB}/oauth/token")).form(form).send().await?;
+    let response = http.post(format!("{HUB}/oauth/token")).form(form).send().await.map_err(|e| Transient(e.to_string()))?;
     let status = response.status();
+    if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(Transient(status.to_string()).into());
+    }
     let body: serde_json::Value = response.json().await.unwrap_or_default();
     if !status.is_success() || body.get("access_token").is_none() {
         let why = body.get("error_description").or_else(|| body.get("error")).and_then(|v| v.as_str()).map(str::to_string).unwrap_or_else(|| status.to_string());

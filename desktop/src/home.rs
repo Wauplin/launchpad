@@ -18,10 +18,16 @@ pub fn client() -> String {
 }
 
 /// The HTTP client of every request: rustls, no cookies, no proxy secrets, a user agent naming the companion.
+/// Redirects are followed only within the same origin: reqwest drops `Authorization` on a cross-host redirect but
+/// keeps the device header, so a redirect elsewhere (or to plain HTTP) would carry the device secret out.
 pub fn http() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(format!("launchpad-desktop/{}", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            let same = attempt.previous().first().is_some_and(|first| first.origin() == attempt.url().origin());
+            if same && attempt.previous().len() < 5 { attempt.follow() } else { attempt.stop() }
+        }))
         .build()
         .expect("HTTP client")
 }
@@ -31,6 +37,8 @@ pub fn http() -> reqwest::Client {
 pub struct HomeError {
     pub failure: Failure,
     pub message: String,
+    /// Home's HTTP status (0: no answer).
+    pub status: u16,
 }
 
 impl std::fmt::Display for HomeError {
@@ -41,7 +49,7 @@ impl std::fmt::Display for HomeError {
 impl std::error::Error for HomeError {}
 
 fn network(e: impl std::fmt::Display) -> HomeError {
-    HomeError { failure: Failure::Network, message: format!("Home does not answer: {e}") }
+    HomeError { failure: Failure::Network, message: format!("Home does not answer: {e}"), status: 0 }
 }
 
 #[derive(Clone)]
@@ -57,8 +65,10 @@ impl Home {
         Home { http, link, device, hf }
     }
 
+    /// A Space link: every call also carries the Hugging Face token, so only a Space's own address qualifies (a
+    /// settings file naming another address never receives it).
     fn space(&self) -> bool {
-        self.link.kind == HomeKind::Space
+        self.link.kind == HomeKind::Space && crate::hf::space_origin(&self.link.origin)
     }
 
     async fn send(&self, method: reqwest::Method, path: &str, body: Option<&serde_json::Value>, extra: &[(&str, String)]) -> Result<reqwest::Response, HomeError> {
@@ -69,7 +79,11 @@ impl Home {
                 req = req.header(*k, v);
             }
             if let (true, Some(hf)) = (self.space(), &self.hf) {
-                let bearer = hf.bearer(&self.http).await.map_err(|e| HomeError { failure: Failure::AuthExpired, message: e.to_string() })?;
+                // The Hub not answering is not a refused sign-in: retry like Home not answering.
+                let bearer = hf.bearer(&self.http).await.map_err(|e| {
+                    let failure = if e.downcast_ref::<crate::hf::Transient>().is_some() { Failure::Network } else { Failure::AuthExpired };
+                    HomeError { failure, message: e.to_string(), status: 0 }
+                })?;
                 req = req.bearer_auth(bearer);
             }
             if let Some(body) = body {
@@ -92,13 +106,13 @@ impl Home {
                 .ok()
                 .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
                 .unwrap_or_else(|| format!("Home answered {status}"));
-            return Err(HomeError { failure, message });
+            return Err(HomeError { failure, message, status });
         }
     }
 
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, HomeError> {
         let response = self.send(reqwest::Method::GET, path, None, &[]).await?;
-        response.json().await.map_err(|e| HomeError { failure: Failure::Other, message: format!("Unexpected answer from Home: {e}") })
+        response.json().await.map_err(|e| HomeError { failure: Failure::Other, message: format!("Unexpected answer from Home: {e}"), status: 0 })
     }
 
     pub async fn delete(&self, path: &str) -> Result<(), HomeError> {

@@ -39,14 +39,15 @@ pub enum Failure {
 }
 
 /// Reads a failed answer. `space`: Home sits behind a Hugging Face Space gateway. Home's own refusal of a device says
-/// "pair this browser" (the daemon) or "Connect this computer first" (the gateway, no device header).
+/// "pair this browser" (the daemon) or "Connect this computer first" (the gateway, no device header): only those
+/// mean Revoked (which deletes the secrets), like the extension's `REVOKED`; another 401 (a proxy in front of a
+/// self-hosted Home) is retried.
 pub fn classify(status: u16, body: &str, space: bool) -> Failure {
     let json = body.trim_start().starts_with('{');
     let lower = body.to_ascii_lowercase();
     match status {
-        401 if lower.contains("pair this browser") || lower.contains("connect this computer") || lower.contains("connect this browser") => Failure::Revoked,
+        401 if json && (lower.contains("pair this browser") || lower.contains("connect this computer") || lower.contains("connect this browser")) => Failure::Revoked,
         401 | 403 if space && !json => Failure::AuthExpired,
-        401 => Failure::Revoked,
         503 if json && lower.contains("retryable") => Failure::Updating,
         502..=504 if space && !json => Failure::Starting,
         502..=504 => Failure::Network,
@@ -152,6 +153,9 @@ mod tests {
         assert_eq!(classify(503, "<html>Building</html>", true), Failure::Starting);
         assert_eq!(classify(503, "", false), Failure::Network);
         assert_eq!(classify(500, r#"{"error":"boom"}"#, false), Failure::Other);
+        // Any other 401 never deletes the device: a proxy's page, or a page that quotes Home's words.
+        assert_eq!(classify(401, "Unauthorized", false), Failure::Other);
+        assert_eq!(classify(401, "<p>pair this browser</p>", false), Failure::Other);
     }
 
     #[test]

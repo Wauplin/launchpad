@@ -50,7 +50,8 @@ pub fn init() {
         if std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_BYTES) {
             let _ = std::fs::rename(&path, dir.join("companion.log.1"));
         }
-        OpenOptions::new().create(true).append(true).open(&path).ok()
+        // Only the owner reads it (lines are redacted, but they name Homes and agents).
+        std::os::unix::fs::OpenOptionsExt::mode(OpenOptions::new().create(true).append(true), 0o600).open(&path).ok()
     });
     let filter = EnvFilter::try_from_env("LAUNCHPAD_DESKTOP_LOG").unwrap_or_else(|_| EnvFilter::new("info,zbus=warn,ksni=warn,reqwest=warn,hyper=warn"));
     tracing_subscriber::fmt().with_env_filter(filter).with_ansi(false).with_target(false).with_writer(Redacting { file: Arc::new(Mutex::new(file)) }).init();
