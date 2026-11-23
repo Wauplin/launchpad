@@ -19,8 +19,8 @@
 # Environment:
 #   LAUNCHPAD_DESKTOP_SKIP_OS_CHECK=1    skip the Ubuntu 26.04 check (never the amd64 check; unsupported)
 #   LAUNCHPAD_DESKTOP_OS_RELEASE=<file>  read this file instead of /etc/os-release (tests)
-#   LAUNCHPAD_DESKTOP_INSTALL_API=<url>  the GitHub API base, for a local fake release server (tests); the asset URLs
-#                                        must then start with that base, and plain http is allowed
+#   LAUNCHPAD_DESKTOP_INSTALL_API=<url>  the GitHub API base, for a local fake release server (tests, with --dry-run
+#                                        only); the asset URLs must then start with that base, and plain http is allowed
 #
 # The whole script is one function called on the last line, so a cut download runs nothing. With `curl … | bash`,
 # stdin is the script itself: nothing here reads stdin (commands get </dev/null; sudo asks on the terminal).
@@ -30,6 +30,7 @@ REPO="Wauplin/launchpad"
 PACKAGE="launchpad-desktop"
 ARCH="amd64"
 RELEASES="https://github.com/$REPO/releases"
+WORK_DIR=""
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -46,7 +47,7 @@ Usage: install.sh [--main | --release] [--dry-run] [--help]
   --dry-run   resolve, download and verify, then print the apt command instead of running it
 
 Environment: LAUNCHPAD_DESKTOP_SKIP_OS_CHECK=1 (skip the Ubuntu 26.04 check, unsupported),
-LAUNCHPAD_DESKTOP_OS_RELEASE=<file> and LAUNCHPAD_DESKTOP_INSTALL_API=<url> (tests).
+LAUNCHPAD_DESKTOP_OS_RELEASE=<file> and LAUNCHPAD_DESKTOP_INSTALL_API=<url> (tests, --dry-run only).
 USAGE
 }
 
@@ -134,9 +135,10 @@ Set LAUNCHPAD_DESKTOP_SKIP_OS_CHECK=1 to try anyway (unsupported)."
   ok "curl, sha256sum, python3, dpkg-deb, apt-get${sudo[*]:+, sudo}"
 
   # The API base and where downloads may come from. A fake release server (tests) may use http, and only its own
-  # URLs are accepted then.
+  # URLs are accepted then; it never leads to an install (--dry-run only), so a forgotten variable installs nothing.
   local api="https://api.github.com" allowed="$RELEASES/download/" protocols="=https"
   if [ -n "${LAUNCHPAD_DESKTOP_INSTALL_API:-}" ]; then
+    [ "$dry_run" -eq 1 ] || fail "LAUNCHPAD_DESKTOP_INSTALL_API is set (a fake release server for tests): it works only with --dry-run. Unset it to install from GitHub."
     api="${LAUNCHPAD_DESKTOP_INSTALL_API%/}"
     allowed="$api/"
     protocols="=http,https"
@@ -144,11 +146,15 @@ Set LAUNCHPAD_DESKTOP_SKIP_OS_CHECK=1 to try anyway (unsupported)."
   fi
   local curl_opts=(--silent --show-error --location --proto "$protocols" --proto-redir "$protocols" --connect-timeout 15 --retry 2)
 
-  local dir
-  dir=$(mktemp -d "${TMPDIR:-/tmp}/launchpad-desktop-install.XXXXXXXX")
-  chmod 700 "$dir"
-  # shellcheck disable=SC2064 # $dir is fixed now.
-  trap "rm -rf '$dir'" EXIT
+  # The private folder goes on every exit: the EXIT trap, and an exit on Ctrl+C, a closed terminal or kill (bash
+  # runs no EXIT trap when a signal ends it).
+  trap 'if [ -n "$WORK_DIR" ]; then rm -rf -- "$WORK_DIR"; fi' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/launchpad-desktop-install.XXXXXXXX")
+  chmod 700 "$WORK_DIR"
+  local dir=$WORK_DIR
 
   local path label page
   if [ "$channel" = main ]; then
@@ -224,6 +230,7 @@ Set LAUNCHPAD_DESKTOP_SKIP_OS_CHECK=1 to try anyway (unsupported)."
   # Like update::parse_sha256_file: the first non-empty line, `<hex>  <name>` or `<hex> *<name>`; a name, when
   # given, must be the package's: the asset's name, or the file name build-deb.sh wrote (with the version's `~`).
   line=$(grep -m 1 -v '^[[:space:]]*$' "$dir/package.sha256" || true)
+  line=${line%$'\r'}
   read -r published file_name _ <<<"$line" || true
   published=$(hex64 "${published:-}") || true
   file_name=${file_name#\*}

@@ -103,10 +103,29 @@ pub struct Candidate {
     pub sha256: Asset,
 }
 
-/// `launchpad-desktop_<version>_amd64.deb` → its version.
-pub fn deb_version(name: &str) -> Option<&str> {
+/// `launchpad-desktop_<version>_amd64.deb` → its version. GitHub stores an uploaded asset whose name has `~` with
+/// `.` instead, so a main build's asset `…_2026.11.23.0.main.165830.g614bccb_amd64.deb` holds the package version
+/// `2026.11.23.0~main.165830.g614bccb` (build.yml's format): that one is taken back.
+pub fn deb_version(name: &str) -> Option<String> {
     let v = name.strip_prefix("launchpad-desktop_")?.strip_suffix("_amd64.deb")?;
-    (!v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || ".~+".contains(c))).then_some(v)
+    if v.is_empty() || !v.chars().all(|c| c.is_ascii_alphanumeric() || ".~+".contains(c)) {
+        return None;
+    }
+    let digits = |s: &str, n: Option<usize>| !s.is_empty() && n.is_none_or(|n| s.len() == n) && s.bytes().all(|b| b.is_ascii_digit());
+    if let Some((day, build)) = v.split_once(".main.")
+        && let [y, m, d, n] = day.split('.').collect::<Vec<_>>()[..]
+        && digits(y, Some(4))
+        && digits(m, Some(2))
+        && digits(d, Some(2))
+        && digits(n, None)
+        && let Some((time, commit)) = build.split_once(".g")
+        && digits(time, Some(6))
+        && !commit.is_empty()
+        && commit.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return Some(format!("{day}~main.{build}"));
+    }
+    Some(v.to_string())
 }
 
 /// The newest package of a release (the main-build prerelease holds several) that has its `.sha256`, when it is
@@ -116,9 +135,9 @@ pub fn select(release: &Release, current: &str) -> Option<Candidate> {
         .assets
         .iter()
         .filter_map(|a| {
-            let v = deb_version(&a.name)?;
+            let version = deb_version(&a.name)?;
             let sha = release.assets.iter().find(|s| s.name == format!("{}.sha256", a.name))?;
-            Some(Candidate { version: v.to_string(), deb: a.clone(), sha256: sha.clone() })
+            Some(Candidate { version, deb: a.clone(), sha256: sha.clone() })
         })
         .max_by(|x, y| compare(&x.version, &y.version))
         .filter(|c| compare(&c.version, current) == Ordering::Greater)
@@ -143,6 +162,11 @@ pub fn parse_sha256_file(text: &str, name: &str) -> Option<String> {
         Some(n) if n != name => None,
         _ => Some(hex),
     }
+}
+
+/// The `.sha256` of a candidate: it names the asset, or the file build-deb.sh wrote (with the version's `~`).
+fn sha256_of(text: &str, c: &Candidate) -> Option<String> {
+    parse_sha256_file(text, &c.deb.name).or_else(|| parse_sha256_file(text, &format!("{PACKAGE}_{}_{ARCH}.deb", c.version)))
 }
 
 /// The package fields `dpkg-deb -f <file> Package Architecture Version` printed.
@@ -278,7 +302,7 @@ async fn fetch_and_verify(http: &reqwest::Client, c: &Candidate, dir: &Path, on_
     on_verify();
     let actual = hex::encode(hasher.finalize());
     let sha_text = http.get(&c.sha256.browser_download_url).send().await?.error_for_status()?.text().await?;
-    let result = verify_sums(&actual, parse_digest(c.deb.digest.as_deref()).as_deref(), parse_sha256_file(&sha_text, &c.deb.name).as_deref())
+    let result = verify_sums(&actual, parse_digest(c.deb.digest.as_deref()).as_deref(), sha256_of(&sha_text, c).as_deref())
         .and_then(|()| fields(&path).and_then(|out| check_fields(&out, &c.version)));
     if let Err(reason) = result {
         anyhow::bail!(reason);
@@ -394,6 +418,34 @@ mod tests {
         assert_eq!(select(&release, "2026.11.22.1"), None);
         assert_eq!(deb_version("launchpad-desktop_1.2_arm64.deb"), None);
         assert_eq!(deb_version("launchpad-desktop_1;rm_amd64.deb"), None);
+        assert_eq!(deb_version("launchpad-desktop_2026.11.23.1_amd64.deb").as_deref(), Some("2026.11.23.1"));
+        assert_eq!(deb_version("launchpad-desktop_1.main.2_amd64.deb").as_deref(), Some("1.main.2"));
+    }
+
+    #[test]
+    fn main_build_asset_names_from_github() {
+        // The real main-build assets: GitHub turned the version's `~` into `.`, the .sha256 kept build-deb.sh's name.
+        let name = "launchpad-desktop_2026.11.23.0.main.165830.g614bccb_amd64.deb";
+        let release = Release {
+            tag_name: "main-build".into(),
+            assets: vec![
+                asset(name),
+                asset(&format!("{name}.sha256")),
+                asset("launchpad-desktop_2026.11.22.0.main.235900.gaaaaaaa_amd64.deb"),
+                asset("launchpad-desktop_2026.11.22.0.main.235900.gaaaaaaa_amd64.deb.sha256"),
+            ],
+        };
+        let c = select(&release, "2026.11.22.0~main.235900.gaaaaaaa").unwrap();
+        assert_eq!(c.version, "2026.11.23.0~main.165830.g614bccb");
+        assert_eq!(c.deb.name, name);
+        // The same build is not newer than itself, and that day's release is newer than it.
+        assert_eq!(select(&release, "2026.11.23.0~main.165830.g614bccb"), None);
+        assert_eq!(select(&release, "2026.11.23.1"), None);
+        let hex = "ab".repeat(32);
+        assert_eq!(sha256_of(&format!("{hex}  launchpad-desktop_2026.11.23.0~main.165830.g614bccb_amd64.deb\n"), &c), Some(hex.clone()));
+        assert_eq!(sha256_of(&format!("{hex}  {name}\n"), &c), Some(hex.clone()));
+        assert_eq!(sha256_of(&format!("{hex}  launchpad-desktop_2026.11.22.0~main.235900.gaaaaaaa_amd64.deb\n"), &c), None);
+        assert!(check_fields("Package: launchpad-desktop\nArchitecture: amd64\nVersion: 2026.11.23.0~main.165830.g614bccb\n", &c.version).is_ok());
         assert!(asset_url_ok("https://github.com/Wauplin/launchpad/releases/download/main-build/launchpad-desktop_1_amd64.deb"));
         assert!(cfg!(debug_assertions) && std::env::var_os("LAUNCHPAD_DESKTOP_UPDATE_API").is_some() || !asset_url_ok("https://evil.example/launchpad-desktop_1_amd64.deb"));
     }
