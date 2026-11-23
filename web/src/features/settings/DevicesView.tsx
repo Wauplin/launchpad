@@ -86,7 +86,7 @@ function DeviceList({ title, empty }: { title: string; empty: string }) {
 
 function ReversePairing({ disabled }: { disabled: boolean }) {
   const [code, setCode] = useState("");
-  const [request, setRequest] = useState<{ code: string; name: string } | null>(null);
+  const [request, setRequest] = useState<{ code: string; name: string; desktop: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const qc = useQueryClient();
   const check = async () => {
@@ -94,8 +94,8 @@ function ReversePairing({ disabled }: { disabled: boolean }) {
     setRequest(null);
     try {
       const normalized = code.replace(/[\s-]/g, "").toUpperCase();
-      const result = await api.post<{ name: string }>("/api/devices/reverse/check", { code: normalized });
-      setRequest({ code: normalized, name: result.name });
+      const result = await api.post<{ name: string; kind?: Device["kind"] }>("/api/devices/reverse/check", { code: normalized });
+      setRequest({ code: normalized, name: result.name, desktop: result.kind === "desktop" });
     } catch (error) { toastError(error); }
     finally { setBusy(false); }
   };
@@ -105,7 +105,7 @@ function ReversePairing({ disabled }: { disabled: boolean }) {
     try {
       await api.post("/api/devices/reverse/approve", { code: request.code });
       setRequest(null); setCode("");
-      toast("Approved. The waiting browser will connect shortly.");
+      toast(request.desktop ? "Approved. The desktop companion will connect shortly." : "Approved. The waiting browser will connect shortly.");
       await qc.invalidateQueries({ queryKey: ["devices"] });
     } catch (error) { setRequest(null); toastError(error); }
     finally { setBusy(false); }
@@ -118,9 +118,9 @@ function ReversePairing({ disabled }: { disabled: boolean }) {
       <button className="btn btn-sm" disabled={disabled || busy}>Check code</button>
     </form>
     {request && <div className="grid gap-2" role="status">
-      <p className="text-[13px]">Allow <strong>{request.name}</strong> with code <span className="font-mono">{request.code}</span> full access to Launchpad?</p>
-      <p className="text-[12px] text-ink-2">Only approve a code you can see on your own device. The browser supplies its name; it is not proof of identity.</p>
-      <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={disabled || busy} onClick={() => void approve()}>Approve browser</button><button className="btn btn-sm" disabled={busy} onClick={() => setRequest(null)}>Cancel</button></div>
+      <p className="text-[13px]">Allow {request.desktop && "the desktop companion "}<strong>{request.name}</strong> with code <span className="font-mono">{request.code}</span> full access to Launchpad?</p>
+      <p className="text-[12px] text-ink-2">Only approve a code you can see on your own device. The {request.desktop ? "companion" : "browser"} supplies its name; it is not proof of identity.</p>
+      <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={disabled || busy} onClick={() => void approve()}>{request.desktop ? "Approve desktop companion" : "Approve browser"}</button><button className="btn btn-sm" disabled={busy} onClick={() => setRequest(null)}>Cancel</button></div>
     </div>}
   </div>;
 }

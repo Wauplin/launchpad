@@ -326,19 +326,18 @@ impl Auth {
         // The extension's header decides alone: a stale secret never falls back to a cookie.
         if let Some(v) = headers.get(DEVICE_HEADER) {
             let secret = v.to_str().ok().filter(|_| device_caller(headers))?;
-            let access = self.device_access(secret, changes)?;
             // The desktop companion's secret works only without an Origin (never from a page, nor the extension's).
-            if headers.contains_key(header::ORIGIN) && self.kind_of(&access) == Some(DeviceKind::Desktop) {
-                return None;
-            }
-            return Some(access);
+            let origin = headers.contains_key(header::ORIGIN);
+            return self.device_access(secret, changes, |kind| !(origin && kind == DeviceKind::Desktop));
         }
         for v in headers.get_all(header::COOKIE) {
             let Ok(v) = v.to_str() else { continue };
             for pair in v.split(';') {
                 if let Some((k, val)) = pair.trim().split_once('=')
                     && k == self.cookie
-                    && let Some(access) = self.device_access(val, changes.clone())
+                    // Only a paired browser's secret works as a cookie: the extension's and the desktop
+                    // companion's go only in their header.
+                    && let Some(access) = self.device_access(val, changes.clone(), |kind| kind == DeviceKind::Browser)
                 {
                     return Some(access);
                 }
@@ -347,17 +346,12 @@ impl Auth {
         None
     }
 
-    /// The live device whose secret this is (cookie or extension header).
-    fn device_access(&self, secret: &str, changes: watch::Receiver<u64>) -> Option<Access> {
+    /// The live device whose secret this is (cookie or device header), when its kind is accepted on this path.
+    fn device_access(&self, secret: &str, changes: watch::Receiver<u64>, accept: impl Fn(DeviceKind) -> bool) -> Option<Access> {
         let sessions = self.sessions.read().unwrap();
-        let session = sessions.get(&hash(secret)).filter(|s| s.expires_at > now() && s.valid.load(Ordering::Acquire))?;
+        let session = sessions.get(&hash(secret)).filter(|s| s.expires_at > now() && s.valid.load(Ordering::Acquire) && accept(s.kind))?;
         self.touch(session);
         Some(Access { session: Some((session.valid.clone(), session.expires_at)), device: Some(session.id.clone()), changes })
-    }
-
-    fn kind_of(&self, access: &Access) -> Option<DeviceKind> {
-        let id = access.device.as_deref()?;
-        self.sessions.read().unwrap().values().find(|s| s.id == id).map(|s| s.kind)
     }
 
     /// Records the device's last activity, at most once per `SEEN_INTERVAL`, off the request path.
@@ -1182,6 +1176,8 @@ mod tests {
             assert!(!from_desktop(&with_origin));
             assert!(auth.authenticate(&with_origin).is_none(), "{origin}");
         }
+        // Nor as a cookie: only a paired browser's secret is one.
+        assert!(auth.authenticate(&browser(&auth, &token)).is_none());
         // A device header manages no devices, except deleting itself.
         assert!(!device_header_path(&Method::GET, "/api/devices"));
         assert!(!device_header_path(&Method::DELETE, "/api/devices/abc"));
