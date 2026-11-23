@@ -1,7 +1,7 @@
 /target
 /web/node_modules
 /web/dist
-/desktop/src-tauri/gen
+/desktop/target
 /web/tsconfig.tsbuildinfo
 
 # Agent worktrees have their own Git state.

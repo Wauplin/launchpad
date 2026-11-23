@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/core", "crates/harness", "crates/channels", "crates/github", "crates/automation", "crates/setup", "crates/http", "crates/api", "crates/server", "crates/cli"]
+# The desktop companion (`desktop/`) is a Cargo workspace of its own (GTK4): root builds and runners never need GTK.
+exclude = ["desktop"]
 
 [workspace.package]
 edition = "2024"

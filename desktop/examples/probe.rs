@@ -1,0 +1,70 @@
+//! A development check without a desktop or keyring: links to a scratch dev Home through reverse pairing (approving
+//! the code itself with the scratch Home's owner token), checks `/api/version`, then reads the event stream for a few
+//! seconds and prints the menu's live groups. Never point it at a real Home.
+//!
+//! `LAUNCHPAD_PROBE_ORIGIN=http://127.0.0.1:7391 LAUNCHPAD_PROBE_OWNER_TOKEN=$(cat <scratch>/token) cargo run --example probe`
+
+use std::time::{Duration, Instant};
+
+use futures_util::StreamExt;
+use launchpad_desktop::home::{self, Home};
+use launchpad_desktop::links::Links;
+use launchpad_desktop::model::{self, BusEvent, Model, Reload};
+use launchpad_desktop::settings::{HomeKind, HomeLink};
+use launchpad_desktop::{conn, sse};
+use serde_json::json;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let origin = home::address_origin(&std::env::var("LAUNCHPAD_PROBE_ORIGIN")?).map_err(anyhow::Error::msg)?;
+    let owner = std::env::var("LAUNCHPAD_PROBE_OWNER_TOKEN")?;
+    let http = home::http();
+    let start = home::post_unlinked(&http, &format!("{origin}/auth/reverse/start"), &json!({"name": "Desktop · probe", "kind": "desktop"}), None).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let (code, secret) = (start["code"].as_str().unwrap().to_string(), start["secret"].as_str().unwrap().to_string());
+    println!("pairing code {code}");
+    let approved = http.post(format!("{origin}/api/devices/reverse/approve")).bearer_auth(owner).json(&json!({"code": code})).send().await?;
+    println!("approve: {} {}", approved.status(), approved.text().await?);
+    let device = loop {
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        let r = home::post_unlinked(&http, &format!("{origin}/auth/reverse/poll"), &json!({"code": code, "secret": secret}), None).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        if let Some(d) = r["device"].as_str() {
+            break d.to_string();
+        }
+    };
+    println!("device secret received ({} characters)", device.len());
+    let link = HomeLink { kind: HomeKind::Address, origin: origin.clone(), space: None, device_name: "Desktop · probe".into(), hf: None };
+    let home = Home::new(http, link, device, None);
+    let version: serde_json::Value = home.get("/api/version").await?;
+    let caps: Vec<String> = version["capabilities"].as_array().map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect()).unwrap_or_default();
+    println!("version {version} → compatible: {:?}", conn::compatibility(version["api"].as_u64().map(|a| a as u32), version["min_client"].as_u64().unwrap_or(0) as u32, &caps).is_none());
+    let mut model = Model::default();
+    let response = home.events(None).await?;
+    let mut body = response.bytes_stream();
+    let mut parser = sse::Parser::default();
+    let until = Instant::now() + Duration::from_secs(4);
+    while let Ok(Some(Ok(chunk))) = tokio::time::timeout(until.saturating_duration_since(Instant::now()), body.next()).await {
+        for frame in parser.push(&String::from_utf8_lossy(&chunk)) {
+            let ev: BusEvent = serde_json::from_str(&frame.data)?;
+            println!("event {} {}/{}", ev.bus, ev.topic, ev.kind);
+            if matches!(ev.kind.as_str(), "replayed" | "resync") {
+                model.workspaces = home.get("/api/workspaces").await?;
+                model.folders = home.get("/api/projects").await?;
+                model.bots = home.get("/api/bots").await?;
+                let sessions: Vec<model::Session> = home.get("/api/sessions").await?;
+                model.sessions = sessions.into_iter().map(|s| (s.id.clone(), s)).collect();
+                model.today = home.get::<model::Today>("/api/today").await?.items;
+                model.loaded = true;
+            } else if let Some(Reload::Today) = model.apply(&ev) {
+                model.today = home.get::<model::Today>("/api/today").await?.items;
+            }
+        }
+    }
+    let ws = model.workspace(None);
+    println!("workspaces {:?} → following {ws:?}; {} sessions, {} bots, {} Today items", model.workspaces.iter().map(|w| &w.name).collect::<Vec<_>>(), model.sessions.len(), model.bots.len(), model.today.len());
+    if let Some(ws) = ws {
+        println!("{:#?}", model::status(&model, &ws, &Links::new(&origin, &ws)));
+    }
+    home.delete("/api/devices/self").await?;
+    println!("device deleted; next call: {:?}", home.get::<serde_json::Value>("/api/version").await.err().map(|e| e.failure));
+    Ok(())
+}
