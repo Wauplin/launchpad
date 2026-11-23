@@ -32,7 +32,7 @@ Pairing links work once and expire after five minutes. Browser credentials last 
 
 The [Chrome extension](../extension/README.md) pairs the same way with **Use an address**: it shows the code in its side panel. With a Home in a Space, it uses Sign in with Hugging Face instead. Either way, it shows in **Settings → Devices** as “Chrome on <system>”, and **Revoke** disconnects it at once.
 
-The Linux desktop companion is another client of the same kind. It pairs with a code like a browser (or connects to a Space through the gateway) and shows in **Settings → Devices** as a Desktop companion.
+The [Linux desktop companion](desktop.md) is another client of the same kind. It pairs with a code like a browser (or connects to a Space through the gateway) and shows in **Settings → Devices** as a Desktop companion.
 
 ## Reach Home from other devices
 

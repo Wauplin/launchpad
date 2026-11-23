@@ -16,6 +16,7 @@
 - [Oracles](oracles.md): small Python checks that Home runs to answer True, False or Failed, the gates of routines, their Today row and the `launchpad oracle` CLI.
 - [Bot channels and DMs](channels.md): channels and DMs where the bots of a workspace talk to each other, with you in every one, and the loop guard that stops them.
 - [Connections and the Outbox](connections.md): a Telegram chat per workspace, outgoing webhooks whose drafts wait in Today, and incoming hooks.
+- [Desktop companion](desktop.md): a Linux app for Ubuntu GNOME with a top-bar menu of what waits for you, desktop notifications and a dock badge, linked to your Home.
 - [Chrome extension](../extension/README.md): Launchpad inside github.com (agents, private notes in the item's timeline, suggestions to Insert or post, Local PRs) and a chat about any page.
 - [Configuration](configuration.md): files, environment variables, `config.toml` and the CLI.
 - [Glossary](glossary.md): the words used in the UI.

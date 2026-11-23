@@ -243,6 +243,8 @@ The Chrome extension and the desktop companion are clients that are released apa
 - **Device management**: a call made with a device header (extension or companion) never reaches `/api/devices…`, on the daemon (`auth::device_header_path`) and on the gateway, except `DELETE /api/devices/self`, which deletes the caller's own device. On a Space, the owner's window may call `GET /api/devices` and `DELETE /api/devices/<id>`; pairing and `/auth` stay closed there.
 - **Session groups**: light session records and `sessions` bus events carry `group` (`Session::group()`: needs_you, running, quota_paused, sleeping, done, stopped, interrupted, failed, in_terminal, archived), the group of the Agents list. The web reads it through `sessionGroup`, and both languages check `web/tests/session-groups/cases.json`. Full records leave it out.
 
+The desktop companion (`desktop/`, [Desktop companion](desktop.md)) is the other separate client: a GTK 4 app with a StatusNotifierItem menu (ksni), a GApplication for one instance, the event stream `GET /api/events` with the device header, and its secrets in the Secret Service (oo7). It follows only same-origin redirects, so the device header never leaves Home's address.
+
 ## Chrome extension
 
 The extension (`extension/`) is a GitHub layer inside github.com plus a side-panel chat about any page. It never acts in pages, never posts or submits on GitHub and never calls a model API: agents run on runners like every other session. See [extension/README.md](../extension/README.md) for what it shows.
@@ -315,6 +317,7 @@ web/             React app (Vite, TanStack Query/Router/Virtual, Tailwind)
 ├── src/demo/       demo mode: an in-browser fake daemon for the tour
 └── src/gen/        TypeScript types generated from Rust
 extension/       Chrome extension
+desktop/         Linux desktop companion (launchpad-desktop, GTK 4): a separate Cargo workspace with its own Cargo.lock, excluded from the root one
 deploy/hf-home/  Home in a Hugging Face Space: Dockerfiles, gateway, setup page, runner installer
 packaging/       Home installer (install.sh), systemd unit, Local VM runner (local-vm.sh), icons
 skills/launchpad/ the agent skill for the launchpad CLI
