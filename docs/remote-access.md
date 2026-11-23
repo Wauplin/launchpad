@@ -100,7 +100,7 @@ Open the paired HTTPS origin in the phone's browser and use **Install** or **Add
 
 On Android, open Home in Chrome and use the menu → **Install app**. A long press on the app icon shows the shortcuts **Ask**, **Today** and **New agent**, and other apps can share a link or text to Launchpad: it opens the composer with the shared text as the prompt. The installed app keeps its page and assets, so it still opens when the phone is offline and shows the lists it saved last. On a private Hugging Face Space, the page fetches the manifest with your Hub sign-in. If Chrome still offers only **Add to Home Screen**, open `chrome://inspect` on a computer with the phone plugged in, inspect the page and read the reason under **Application → Manifest**.
 
-Notifications come only through Telegram: bind a chat in **Settings → Workspace → Telegram** of each workspace ([Connections](connections.md#telegram)) to get its finished, failed and interrupted agents and routine reports on your phone. Launchpad shows no desktop or Web Push notifications.
+Home sends notifications only through Telegram: bind a chat in **Settings → Workspace → Telegram** of each workspace ([Connections](connections.md#telegram)) to get its finished, failed and interrupted agents and routine reports on your phone. Home shows no desktop or Web Push notifications. On Ubuntu, the optional [desktop companion](desktop.md#notifications) shows its own desktop notifications of what needs you.
 
 ## Run Home on your own server
 
