@@ -43,17 +43,17 @@ On **Connect**, the Space's gateway checks your token (the Hub's private-Space c
 
 ### Sign in with Hugging Face
 
-Sign in needs an OAuth app on Hugging Face. Register it once under your account, in [Connected Apps](https://huggingface.co/settings/connected-applications) (**Create App**):
+Sign in needs an OAuth app on Hugging Face. The Chrome extension and the [desktop companion](../desktop/README.md) share one public OAuth app. Register it once under your account, in [Connected Apps](https://huggingface.co/settings/connected-applications) (**Create App**):
 
 | Field | Value |
 | --- | --- |
 | Name | Launchpad for Chrome |
 | Homepage | `https://github.com/Wauplin/launchpad` |
 | Scopes | `openid profile read-repos` |
-| Redirect URL | `https://bbefehapjjlbeodihifmpgidgjhmcklj.chromiumapp.org/` |
+| Redirect URLs | `https://bbefehapjjlbeodihifmpgidgjhmcklj.chromiumapp.org/` (Chrome extension) and `http://127.0.0.1/callback` (desktop companion's loopback callback; no port, Hugging Face accepts any port for loopback redirects) |
 | Type | Public client (PKCE, no secret) |
 
-Release and main builds include the client ID from the GitHub repository variable `HF_CLIENT_ID`, passed to the build as `VITE_HF_CLIENT_ID`. Set that variable under **Settings → Secrets and variables → Actions → Variables** before building.
+Release and main builds include the client ID from the GitHub repository variable `HF_CLIENT_ID`, passed to the extension's build as `VITE_HF_CLIENT_ID` and to the desktop companion's as `LAUNCHPAD_HF_CLIENT_ID`. Set that variable under **Settings → Secrets and variables → Actions → Variables** before building.
 
 For a source build or a different OAuth app, give its client ID to the extension in one of two ways:
 

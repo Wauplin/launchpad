@@ -201,7 +201,8 @@ jobs:
         env:
           LAUNCHPAD_DESKTOP_VERSION: ${{ steps.version.outputs.version }}
           LAUNCHPAD_DESKTOP_CHANNEL: ${{ steps.version.outputs.channel }}
-          LAUNCHPAD_HF_CLIENT_ID: ${{ vars.HF_DESKTOP_CLIENT_ID }}
+          # The same public Hugging Face OAuth app as the Chrome extension (its loopback redirect is registered there too).
+          LAUNCHPAD_HF_CLIENT_ID: ${{ vars.HF_CLIENT_ID }}
         run: cargo build --manifest-path desktop/Cargo.toml --release --locked
       - name: Build the .deb (Depends from dpkg-shlibdeps)
         run: |

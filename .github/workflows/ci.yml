@@ -119,6 +119,9 @@ jobs:
     runs-on: ubuntu-24.04
     container: ubuntu:26.04
     timeout-minutes: 30
+    env:
+      # Built like the release package: the Chrome extension's public Hugging Face OAuth app (one app for both).
+      LAUNCHPAD_HF_CLIENT_ID: ${{ vars.HF_CLIENT_ID }}
     steps:
       - name: Install build tools and GTK 4
         env:
