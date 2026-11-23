@@ -49,8 +49,10 @@ The menu holds, from top to bottom:
 - **Needs you**: up to four Today items, each opening its card in the browser, then “N more…”, which opens Today. “Nothing waits for you” when the list is empty.
 - **Running**, **Quota paused** and **Sleeping**: your agents in those states (not bot threads), each opening the agent in Agents.
 - **Bots**: bots with threads that ask or work ("Name · 1 asking, 2 working"), each opening the bot's chat.
-- **Ask…**, **Go to…** and **Quick launch…**: for now these open the web app's Ask panel, Today and the launch composer. The Spotlight replaces them (see [Spotlight](#spotlight)). Ask and Quick launch need a live connection.
+- **Ask…** opens the [Spotlight](#spotlight), **Go to…** opens it with `>` (Go to only), and **Quick launch…** opens the quick launch form. Ask and Quick launch need a live connection.
 - **Open Launchpad**: Today in the browser.
+- **Shortcut**: the active global shortcut, then **Change shortcut…** (portal) or **Use a GNOME custom shortcut** (when the portal gave none).
+- **Settings…**: the companion's settings window (see [Commands and settings](#commands-and-settings)).
 - **Workspace**: the workspace the companion follows, shown when you have more than one. The count, the lists and the notifications cover only that workspace.
 - **Notifications** and **Start at login**: switches.
 - **Sign out** and **Quit**.
@@ -86,7 +88,7 @@ With **Notifications** on (the default), the companion shows a desktop notificat
 - After a gap (offline, a dropped stream), new items become one summary: "While you were away: 2 asking, 1 failed".
 - Connection problems notify once each: offline for over two minutes (then “Launchpad is back online”), Home starting for over two minutes, sign in again, device removed, Home too old.
 
-Notifications carry no token in their links. Home itself still sends no desktop notifications; Telegram is unchanged.
+`/dnd` in the Spotlight pauses them for one hour. An answer or a question of an ask you sent from the Spotlight also notifies you while the Spotlight is hidden. Notifications carry no token in their links. Home itself still sends no desktop notifications; Telegram is unchanged.
 
 GNOME Shell shows an app's notifications only when the app's desktop file (`dev.launchpad.Desktop.desktop`) is installed. Without it, GNOME refuses them. The package installs it.
 
@@ -101,13 +103,109 @@ The companion also sends its count to the Ubuntu Dock (the Unity LauncherEntry s
 Only one companion runs at a time. A second `launchpad-desktop` hands its arguments to the running one and exits:
 
 - `--action ask|goto|launch|open|today|connect|quit`: run a menu action.
-- `--toggle`: open or close the Spotlight (bound to the global shortcut).
+- `--toggle`: open or close the Spotlight (what the global shortcut runs). A plain second `launchpad-desktop` does the same once the companion is linked.
 - `--background`: start without a window (used at login).
 - `--quit`: stop the running companion.
 
 ## Spotlight
 
-Coming in this release: a global shortcut (Ctrl+Alt+Space) that opens a small window to ask a bot, go to a Launchpad object or launch an agent.
+The Spotlight is a small window over your desktop. Use it to ask a bot, go to a Launchpad object or launch an agent without switching to the browser.
+
+### Opening it
+
+- **Ctrl+Alt+Space** opens and closes it. The companion registers this shortcut through the GlobalShortcuts portal of xdg-desktop-portal. The first time, GNOME asks you to allow the shortcut; later starts bind it again without asking.
+- **Change shortcut…** in the menu opens GNOME's own dialog to pick another key.
+- When the portal gives no shortcut (you refused it, or it failed), the menu offers **Use a GNOME custom shortcut**. This adds one custom shortcut, "launchpad-desktop", that runs `launchpad-desktop --toggle` with Ctrl+Alt+Space. It shows in **Settings → Keyboard → Custom Shortcuts**, and your other custom shortcuts stay as they are. **Remove GNOME custom shortcut** in the companion's settings takes it out and goes back to the portal.
+- `launchpad-desktop --toggle` always works, from any launcher or script.
+- The menu's **Ask…** and **Go to…** open it too.
+
+The portal and the custom shortcut need the installed desktop file `dev.launchpad.Desktop.desktop` and `launchpad-desktop` on your PATH. The package installs both.
+
+### What you type
+
+| Input | What the list shows |
+|---|---|
+| Nothing | Needs you, then the 5 rows you opened most recently. |
+| Free text | **Ask <bot>** (or **Launch a new agent** when the target is New agent), up to 6 Go to matches, **Launch a new agent with this prompt instead** and **Continue in the browser**. |
+| `@x` | The bots whose name matches; Enter completes `@slug `. |
+| `@bot text` | **Ask <bot>** with that text; "No bot named x" for an unknown name. |
+| `>text` | Go to matches only (up to 12). |
+| `/` | The commands (see [Commands and settings](#commands-and-settings)). |
+| `lp:…` or a Launchpad address, alone | **Open**: Home resolves it and the browser opens it at that place. |
+
+Text of more than 4,000 characters offers no Ask: continue in the browser with Ctrl+D. While Home is not connected, the list shows no Ask or Launch rows; Go to and the browser still work. The footer always says what Enter does.
+
+### Keys
+
+| Key | Action |
+|---|---|
+| ↑ ↓ | Move the selection (headings are skipped). |
+| Enter, or a click | Run the selected row. |
+| Ctrl+Enter | Ask, then open the thread in the browser. |
+| Tab, Shift+Tab | Next or previous Ask target. |
+| Ctrl+D | Continue in the browser (see [Hand-off](#hand-off)). |
+| Ctrl+O | Open the current answer's thread in the browser. |
+| Ctrl+N | Start a new ask. |
+| Ctrl+W | Next workspace. |
+| Esc | Hide; the text is kept for 15 minutes. Clicking elsewhere does the same. |
+| Shift+Esc | Hide and discard the text. |
+
+Every control has a keyboard mnemonic, and the footer is a status line that screen readers announce.
+
+### Ask
+
+- **Target**: the bot set as **Default Ask target** in the companion's settings, while it exists. Otherwise the web app's rule: the workspace's oldest admin bot, else its oldest bot. Tab cycles through the other bots (alphabetical), then New agent. `@bot` at the start of the text picks a bot for that ask.
+- **Sending**: each ask starts a new thread of the bot, sent once even after a retry.
+- **Answer**: the bot's answer shows in the Spotlight as it arrives, up to 1,200 characters. Ctrl+O, or Ctrl+Enter when you send, opens the whole thread in the browser.
+- **Replies**: text you type under an answer goes to the same thread. When the bot asks a question, your text answers it. An approval request is never answered from the Spotlight: Allow or Deny it in the browser.
+- **Closed Spotlight**: when an answer or a question arrives while the Spotlight is hidden, one notification tells you, and a click opens the thread.
+
+### Go to
+
+The search covers the companion's workspace: fixed pages, Today cards, agents (not bot threads or archived agents), open chats, bots, channels and DMs, folios, open Local PRs and folders. A word that starts a name ranks first, then a word inside it, then letters in order. Ties go to what needs you, then to the most recent. Every result opens in the browser.
+
+A link or a short ID (`lp:chat/…`, see [Links and references](links.md)) typed alone opens that object, like the web app's Go to.
+
+### Quick launch
+
+Enter on a Launch row, `/launch [text]` or **Quick launch…** in the menu opens the quick launch form:
+
+- **Prompt**.
+- **Folder**: Temporary folder, or a Git or plain folder of the workspace. The default is the folder you used last, else the folder of your newest agent.
+- **When done**: Keep, Local PR, Merge or Read only (Git folders only). The default is the folder's own setting; Draft PR and Open PR become Local PR, since the quick launch never publishes.
+- **Profile**: the one you used last, else the first.
+
+Only the **Launch** button, or Ctrl+Enter while the form has focus, starts an agent. The Enter key alone never does. A second click or a retry launches once. The browser then opens at the new agent. Paid usage is always off. For anything else, use **Continue in the browser** (Ctrl+D) to finish in the composer.
+
+### Hand-off
+
+Ctrl+D (or **Continue in the browser**) moves your text to the browser:
+
+- **For a launch**: the companion adds the text to Home's launch composer draft, after any text you already had there, and opens the composer. Nothing is lost when the browser changed the draft meanwhile. When the draft cannot be saved, a text of up to 2,000 characters goes in the link instead.
+- **For an ask**: the companion copies the text to the clipboard and opens a new chat with the bot. Paste it there.
+
+### Commands and settings
+
+| Command | Action |
+|---|---|
+| `/launch [text]` | Open the quick launch form with the text. |
+| `/workspace` | Follow the next workspace. |
+| `/today` | Open Today in the browser. |
+| `/dnd` | Pause the companion's notifications for 1 hour. |
+| `/settings` | Open the settings window. |
+
+The settings window (**Settings…** in the menu) shows the shortcut's state with its buttons, the **Default Ask target**, **Notifications** and **Start at login**.
+
+### Not in this release
+
+These parts of the design wait for a later release, so that the shortcut, Ask, Go to and the menu came first:
+
+- Search in message text, and topics, routines, oracles and folio pages or sections in Go to.
+- Pinned launches on the device.
+- Answering a bot's question with option buttons in the Spotlight (type the answer, or open the browser).
+- A “do not disturb” switch in the menu (use `/dnd`), and a notification when an agent starts.
+- A preview check before Launch (Home still checks the launch).
+- A chat draft on Home for asks (the hand-off uses the clipboard until then).
 
 ## Updates
 
@@ -123,4 +221,8 @@ Coming in this release: the companion checks for a newer release and offers **Up
 - Hugging Face OAuth, loopback redirect URIs (any port for `http://127.0.0.1`), PKCE for public apps: https://huggingface.co/docs/hub/oauth
 - Ubuntu session mode of Ubuntu 26.04, which enables `ubuntu-appindicators@ubuntu.com` and `ubuntu-dock@ubuntu.com`: https://git.launchpad.net/ubuntu/+source/gnome-shell/plain/debian/ubuntu-session-mods/ubuntu.json?h=ubuntu/resolute, installed by gnome-shell-common: https://packages.ubuntu.com/resolute/all/gnome-shell-common/filelist
 - GNOME Shell 50.1 refuses notifications of an app without a desktop file (`InvalidAppError`): https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/50.1/js/ui/notificationDaemon.js
+- Host app registry of xdg-desktop-portal 1.21.1 (register the app ID once, before any portal call; it must match a desktop file): https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/1.21.1/data/org.freedesktop.host.portal.Registry.xml
+- GlobalShortcuts portal, version 2 in 1.21.1 (`BindShortcuts`, `ConfigureShortcuts`, `activation_token` in `Activated`): https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/1.21.1/data/org.freedesktop.portal.GlobalShortcuts.xml
+- GNOME's backend binds shortcuts per session (`BindShortcuts` grabs the keys; a new session lists none): https://gitlab.gnome.org/GNOME/xdg-desktop-portal-gnome/-/raw/50.0/src/globalshortcuts.c
+- GNOME Settings shows the consent dialog only for new shortcuts of an app ID, and refuses an invalid app ID: https://gitlab.gnome.org/GNOME/gnome-control-center/-/raw/50.0/global-shortcuts-provider/cc-global-shortcut-dialog.c and https://gitlab.gnome.org/GNOME/gnome-control-center/-/raw/50.0/global-shortcuts-provider/cc-global-shortcuts-provider.c
 - LauncherEntry count on the dock (`com.canonical.Unity.LauncherEntry.Update`, read by Dash to Dock, the base of the Ubuntu Dock): https://raw.githubusercontent.com/micheleg/dash-to-dock/master/launcherAPI.js

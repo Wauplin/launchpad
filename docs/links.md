@@ -31,6 +31,8 @@ Older addresses keep working: Today card links (`/?card=session:<id>`), a bot's 
 
 The top bar's **Go to** button (on a phone, **More → Go to a link or ID**, on a laptop also **Ctrl+K** or **Cmd+K**) takes a link or a short ID and opens its page at the exact place: a chat or channel loads older messages until the linked one is there, scrolls to it and outlines it; an agent's trace does the same; a folio opens the page and scrolls to the section. An object of another workspace switches the window to it. An unknown, deleted or malformed link says so.
 
+The [desktop companion](desktop.md#go-to)'s Spotlight takes the same links and short IDs: typed alone, they open in the browser at that place.
+
 Links in agents' messages and in channel messages open the same way, and short IDs in their text are links too.
 
 ## References as context
