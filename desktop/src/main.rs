@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use launchpad_desktop::engine::{AskView, Cmd, Engine, LinkMsg, Shared, SpotData, Ui, View};
 use launchpad_desktop::shortcut::{self, State as ShortcutState};
 use launchpad_desktop::tray::{self, Action, LpTray, ShortcutMenu};
-use launchpad_desktop::{APP_ID, conn, desktop, linkwin, logging, prefs, quicklaunch, rules, settings, spotlight};
+use launchpad_desktop::{APP_ID, conn, desktop, linkwin, logging, prefs, quicklaunch, rules, settings, spotlight, update};
 
 const USAGE: &str = "Usage: launchpad-desktop [--toggle | --action <ask|goto|launch|open|today|connect|quit> | --background | --quit]
   --toggle      Open or close the spotlight (bind any shortcut to it)
@@ -51,6 +51,15 @@ struct Ctx {
     shortcut_events: RefCell<Option<async_channel::Sender<shortcut::Event>>>,
     /// Asks already notified as answered (by key).
     answered: RefCell<std::collections::HashSet<String>>,
+    /// The companion's own update (None: up to date, or not checked yet).
+    update: RefCell<Option<update::State>>,
+    updates: async_channel::Sender<Upd>,
+}
+
+/// Messages of the update tasks to the main loop.
+enum Upd {
+    Available(update::Candidate),
+    State(update::State),
 }
 
 fn now_ms() -> i64 {
@@ -78,7 +87,8 @@ impl Ctx {
 
     /// Pushes the view and the switches to the tray icon and its menu, and the count to the dock badge.
     fn refresh(&self) {
-        let view = self.view.borrow().clone();
+        let mut view = self.view.borrow().clone();
+        view.update = self.update.borrow().as_ref().map(update::State::menu);
         let (notifications, autostart) = (self.settings.lock().unwrap().notifying(now_ms()), desktop::autostart_on());
         let count = view.live.then_some(view.status.count);
         let icon = tray::icons(count.unwrap_or(0), view.live);
@@ -392,7 +402,7 @@ impl Ctx {
             Action::Connect => self.open_link_window(),
             Action::Retry => self.send(Cmd::RetryNow),
             Action::SignOut => self.send(Cmd::SignOut),
-            Action::Update => {}
+            Action::Update => self.install_update(),
             Action::Quit => self.app.quit(),
             Action::Settings => self.open_prefs(),
             Action::ChangeShortcut => {
@@ -427,6 +437,114 @@ impl Ctx {
                 self.refresh();
             }
         }
+    }
+
+    /// The update channel: the setting, else this build's (`dev` checks nothing, except a debug build pointed at a
+    /// fake release server).
+    fn update_channel(&self) -> Option<String> {
+        let chosen = self.settings.lock().unwrap().update_channel.clone();
+        let channel = chosen.unwrap_or_else(|| update::channel().to_string());
+        match channel.as_str() {
+            "release" | "main" => Some(channel),
+            _ if cfg!(debug_assertions) && std::env::var_os("LAUNCHPAD_DESKTOP_UPDATE_API").is_some() => Some("release".into()),
+            _ => None,
+        }
+    }
+
+    /// The check at start, then every 6 hours; failures back off from 15 minutes. It only reads public release data.
+    fn start_update_checks(&self) {
+        let Some(channel) = self.update_channel() else {
+            tracing::info!("update checks off for this build (channel {})", update::channel());
+            return;
+        };
+        let tx = self.updates.clone();
+        self.rt.spawn(async move {
+            let http = update::client();
+            let mut failures = 0u32;
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+            loop {
+                let wait = match update::check(&http, &channel).await {
+                    Ok(found) => {
+                        failures = 0;
+                        if let Some(c) = found {
+                            tracing::info!("update available: {}", c.version);
+                            let _ = tx.send(Upd::Available(c)).await;
+                        }
+                        6 * 3600
+                    }
+                    Err(e) => {
+                        failures += 1;
+                        tracing::info!("update check: {e}");
+                        (900u64 << failures.min(4)).min(6 * 3600)
+                    }
+                };
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            }
+        });
+    }
+
+    fn on_update(self: &Rc<Self>, msg: Upd) {
+        match msg {
+            Upd::Available(c) => {
+                // A pending or running install is not replaced by a newer check.
+                let busy = matches!(*self.update.borrow(), Some(update::State::Downloading(_) | update::State::Verifying(_) | update::State::Installing(_) | update::State::Restart(_)));
+                if busy {
+                    return;
+                }
+                let first = self.settings.lock().unwrap().update_notified.as_deref() != Some(c.version.as_str());
+                if first {
+                    self.save(|s| s.update_notified = Some(c.version.clone()));
+                    let note = rules::Note { key: "update".into(), title: format!("Launchpad companion {} is available", c.version), body: "Update from the Launchpad menu in the top bar.".into(), item: None };
+                    desktop::notify(&self.app, &note, "");
+                }
+                *self.update.borrow_mut() = Some(update::State::Available(c));
+            }
+            Upd::State(state) => {
+                let restart = matches!(state, update::State::Restart(_));
+                *self.update.borrow_mut() = Some(state);
+                if restart {
+                    self.refresh();
+                    restart_companion();
+                    self.app.quit();
+                    return;
+                }
+            }
+        }
+        self.refresh();
+    }
+
+    /// The owner's click: download, verify, install (polkit asks), restart. Never without this click.
+    fn install_update(self: &Rc<Self>) {
+        let candidate = match self.update.borrow().as_ref() {
+            Some(update::State::Available(c)) | Some(update::State::Failed { candidate: c, .. }) => c.clone(),
+            _ => return,
+        };
+        let tx = self.updates.clone();
+        let say = move |s: update::State| {
+            let _ = tx.try_send(Upd::State(s));
+        };
+        say(update::State::Downloading(candidate.version.clone()));
+        self.rt.spawn(async move {
+            let http = update::client();
+            let c = candidate.clone();
+            let verify_say = say.clone();
+            let result = async {
+                let path = update::download(&http, &c, || verify_say(update::State::Verifying(c.version.clone()))).await?;
+                say(update::State::Installing(c.version.clone()));
+                update::install(&path).await
+            }
+            .await;
+            match result {
+                Ok(()) => {
+                    tracing::info!("installed {}", candidate.version);
+                    say(update::State::Restart(candidate.version.clone()));
+                }
+                Err(e) => {
+                    tracing::warn!("update {} failed: {e}", candidate.version);
+                    say(update::State::Failed { candidate, reason: e.to_string() });
+                }
+            }
+        });
     }
 
     /// The arguments of a launch (this one, or a second instance that handed them over). Exit code 2 for unknown ones.
@@ -474,7 +592,7 @@ impl Ctx {
 fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--version") {
-        println!("launchpad-desktop {}", env!("CARGO_PKG_VERSION"));
+        println!("launchpad-desktop {} ({})", update::version(), update::channel());
         return glib::ExitCode::SUCCESS;
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
@@ -494,7 +612,8 @@ fn main() -> glib::ExitCode {
 
     let slot = ctx.clone();
     app.connect_startup(move |app| {
-        tracing::info!("launchpad-desktop {} starting", env!("CARGO_PKG_VERSION"));
+        tracing::info!("launchpad-desktop {} ({}) starting", update::version(), update::channel());
+        let (upd_tx, upd_rx) = async_channel::unbounded::<Upd>();
         let settings: Shared = Arc::new(Mutex::new(settings::Settings::load()));
         let (ui_tx, ui_rx) = async_channel::unbounded::<Ui>();
         let (engine, cmd) = Engine::new(settings.clone(), ui_tx);
@@ -538,7 +657,16 @@ fn main() -> glib::ExitCode {
             portal: RefCell::new(None),
             shortcut_events: RefCell::new(None),
             answered: RefCell::new(Default::default()),
+            update: RefCell::new(None),
+            updates: upd_tx,
         });
+        let up = c.clone();
+        glib::spawn_future_local(async move {
+            while let Ok(msg) = upd_rx.recv().await {
+                up.on_update(msg);
+            }
+        });
+        c.start_update_checks();
         // The spotlight is built now, hidden, so the shortcut shows it at once.
         c.spotlight();
         let (sc_tx, sc_rx) = async_channel::unbounded::<shortcut::Event>();
@@ -575,6 +703,15 @@ fn main() -> glib::ExitCode {
     let code = app.run();
     runtime.shutdown_timeout(std::time::Duration::from_secs(2));
     code
+}
+
+/// Starts the newly installed companion once this one has quit (the single instance would otherwise take it).
+fn restart_companion() {
+    let exe = if std::path::Path::new("/usr/bin/launchpad-desktop").exists() { "/usr/bin/launchpad-desktop".to_string() } else { std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default() };
+    let spawned = std::process::Command::new("/bin/sh").arg("-c").arg("sleep 2; exec \"$0\" --background").arg(&exe).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+    if let Err(e) = spawned {
+        tracing::warn!("restart: {e}");
+    }
 }
 
 /// The action the arguments ask for (None: no action), or None at the outer level when they are invalid.

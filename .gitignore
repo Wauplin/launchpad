@@ -2,6 +2,7 @@
 /web/node_modules
 /web/dist
 /desktop/target
+/desktop/dist
 /web/tsconfig.tsbuildinfo
 
 # Agent worktrees have their own Git state.

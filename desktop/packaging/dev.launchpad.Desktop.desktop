@@ -1,0 +1,30 @@
+[Desktop Entry]
+Type=Application
+Name=Launchpad
+GenericName=Launchpad companion
+Comment=Ask your Launchpad bots, go to any agent, and see what needs you
+Exec=launchpad-desktop
+Icon=dev.launchpad.Desktop
+Terminal=false
+Categories=Development;Utility;
+Keywords=launchpad;agent;bot;ask;spotlight;
+StartupNotify=true
+SingleMainWindow=true
+X-GNOME-UsesNotifications=true
+Actions=ask;goto;launch;today;
+
+[Desktop Action ask]
+Name=Ask Launchpad
+Exec=launchpad-desktop --action ask
+
+[Desktop Action goto]
+Name=Go to…
+Exec=launchpad-desktop --action goto
+
+[Desktop Action launch]
+Name=Quick launch
+Exec=launchpad-desktop --action launch
+
+[Desktop Action today]
+Name=Open Today
+Exec=launchpad-desktop --action today

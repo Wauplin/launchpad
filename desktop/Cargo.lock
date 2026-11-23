@@ -1164,6 +1164,7 @@ dependencies = [
  "base64 0.22.1",
  "futures-util",
  "gtk4",
+ "hex",
  "ksni",
  "oo7",
  "rand 0.9.5",

@@ -6,6 +6,9 @@ name: Build
 # zip attached (the package also holds the zip, in extension/). With `main-build`,
 # it attaches the package of this main commit to the `main-build`
 # prerelease (deploy/hf-home/deploy.sh --main deploys it).
+# The `desktop` job builds the desktop companion's .deb (launchpad-desktop_<version>_amd64.deb and its .sha256) in an
+# ubuntu:26.04 container, beside the package build; `publish-desktop` attaches it to the same release, or to
+# main-build named by its version (which names the commit), keeping the 20 newest.
 
 on:
   workflow_call:
@@ -141,4 +144,101 @@ jobs:
             | while read -r old; do
                 gh release delete-asset "$tag" "$old" --repo "$GITHUB_REPOSITORY" -y
                 gh release delete-asset "$tag" "$old.sha256" --repo "$GITHUB_REPOSITORY" -y || true
+              done
+
+  desktop:
+    name: Desktop companion package (Ubuntu 26.04 amd64)
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Install build tools and GTK 4
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libgtk-4-dev dpkg-dev
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> target
+          key: desktop-release
+          cache-on-failure: true
+      - name: Package version
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          MAIN_BUILD: ${{ inputs.main-build }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          tag="$RELEASE_TAG"
+          if [ -z "$tag" ] && [ "$REF_TYPE" = tag ]; then tag="$REF_NAME"; fi
+          if printf '%s' "$tag" | grep -Eq '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$'; then
+            version="${tag#v}" channel=release
+          else
+            # Main builds: that day's .0~main.<time>.g<commit> sorts below its releases (.1 and up) and names the commit.
+            version="$(TZ=UTC git show -s --format=%cd --date=format-local:%Y.%m.%d.0~main.%H%M%S).g$(git rev-parse --short=7 HEAD)"
+            channel=main
+          fi
+          echo "Desktop package $version ($channel; main build: $MAIN_BUILD)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+      - name: Build the companion
+        env:
+          LAUNCHPAD_DESKTOP_VERSION: ${{ steps.version.outputs.version }}
+          LAUNCHPAD_DESKTOP_CHANNEL: ${{ steps.version.outputs.channel }}
+          LAUNCHPAD_HF_CLIENT_ID: ${{ vars.HF_DESKTOP_CLIENT_ID }}
+        run: cargo build --manifest-path desktop/Cargo.toml --release --locked
+      - name: Build the .deb (Depends from dpkg-shlibdeps)
+        run: |
+          deb=$(desktop/packaging/build-deb.sh "${{ steps.version.outputs.version }}" --out dist)
+          dpkg-deb -I "$deb"
+          dpkg-deb -c "$deb"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: launchpad-desktop-deb
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-desktop:
+    name: Publish the desktop companion package
+    needs: [build, desktop]
+    if: inputs.release-tag != '' || inputs.main-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: launchpad-desktop-deb
+          path: dist
+      - name: Attach to the release
+        if: inputs.release-tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release-tag }}
+        run: gh release upload "$TAG" dist/*.deb dist/*.deb.sha256 --repo "$GITHUB_REPOSITORY"
+      - name: Attach to main-build
+        if: inputs.main-build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Only the current main head: a superseded run must not publish (the build job created the prerelease).
+          [ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA" ] || { echo "main moved on; not publishing"; exit 0; }
+          gh release upload main-build dist/*.deb dist/*.deb.sha256 --repo "$GITHUB_REPOSITORY" --clobber
+          # Keep the packages of the 20 newest commits.
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/main-build" \
+            --jq '[.assets[] | select(.name | endswith("_amd64.deb"))] | sort_by(.created_at) | reverse | .[20:][] | .name' \
+            | while read -r old; do
+                gh release delete-asset main-build "$old" --repo "$GITHUB_REPOSITORY" -y
+                gh release delete-asset main-build "$old.sha256" --repo "$GITHUB_REPOSITORY" -y || true
               done

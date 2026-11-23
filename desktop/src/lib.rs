@@ -25,6 +25,7 @@ pub mod spot;
 pub mod spotlight;
 pub mod sse;
 pub mod tray;
+pub mod update;
 
 /// The application ID: the D-Bus name, the desktop file (`dev.launchpad.Desktop.desktop`), the notifications' app
 /// and the portal registration all use it.

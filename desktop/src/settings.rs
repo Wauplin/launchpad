@@ -64,6 +64,10 @@ pub struct Settings {
     pub shortcut: String,
     /// `portal` (the default), `custom` (the GNOME custom shortcut the owner chose) or `off`.
     pub shortcut_mode: String,
+    /// Where updates come from: `release` or `main`; unset: this build's channel (a local build checks none).
+    pub update_channel: Option<String>,
+    /// The newest version a notification was sent about (one per version).
+    pub update_notified: Option<String>,
 }
 
 impl Default for Settings {
@@ -80,6 +84,8 @@ impl Default for Settings {
             dnd_until: None,
             shortcut: crate::shortcut::DEFAULT_TRIGGER.into(),
             shortcut_mode: "portal".into(),
+            update_channel: None,
+            update_notified: None,
         }
     }
 }

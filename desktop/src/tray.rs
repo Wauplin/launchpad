@@ -117,8 +117,8 @@ impl ksni::Tray for LpTray {
         if let Some(problem) = &v.problem {
             menu.push(self.item(problem.chars().take(90).collect::<String>(), None));
         }
-        if let Some(version) = &v.update {
-            menu.push(self.item(format!("Update to {version}"), Some(Action::Update)));
+        if let Some((label, clickable)) = &v.update {
+            menu.push(self.item(label.clone(), clickable.then_some(Action::Update)));
         }
         match &v.conn {
             Some(Conn::NotLinked | Conn::Revoked) | None => {

@@ -36,3 +36,9 @@ export RUSTFLAGS="-C link-arg=-Wl,-rpath-link,$L -C link-arg=-L$L" LD_LIBRARY_PA
 Sign in with Hugging Face uses a public OAuth app whose client ID comes from `LAUNCHPAD_HF_CLIENT_ID` at build time, or `hf_client_id` in `$XDG_CONFIG_HOME/launchpad-desktop/settings.toml`. Register the redirect URI `http://127.0.0.1/callback` (no port: Hugging Face accepts any port for loopback redirects). Without a client ID, the connection window takes a pasted Hugging Face token instead.
 
 `cargo run --manifest-path desktop/Cargo.toml --example probe` checks pairing, `/api/version`, the event stream and the menu's groups against a scratch dev Home without a desktop or keyring (`LAUNCHPAD_PROBE_ORIGIN`, `LAUNCHPAD_PROBE_OWNER_TOKEN`); never point it at a real Home.
+
+## Package and updates
+
+`desktop/packaging/build-deb.sh <version>` packs a release build (`cargo build --manifest-path desktop/Cargo.toml --release --locked`, with `LAUNCHPAD_DESKTOP_VERSION` and `LAUNCHPAD_DESKTOP_CHANNEL` set like CI) into `desktop/dist/launchpad-desktop_<version>_amd64.deb` and its `.sha256`. Run it on Ubuntu 26.04, where `dpkg-shlibdeps` computes Depends; a build against a local sysroot passes `--depends "<line>"` instead. CI builds the package for each release and main build and attaches it to the GitHub release. The installed companion checks those releases every 6 hours and offers Update to <version> in its menu; a click downloads, verifies both checksums and the package fields, and installs through PackageKit.
+
+`cargo run --manifest-path desktop/Cargo.toml --example update_probe` runs the check, download and verification (not the install) against a local fake release server named by `LAUNCHPAD_DESKTOP_UPDATE_API` (debug builds only).

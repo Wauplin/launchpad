@@ -118,8 +118,9 @@ pub struct View {
     pub live: bool,
     /// The keyring or another local problem.
     pub problem: Option<String>,
-    /// Step 4: a newer companion ("Update to <version>").
-    pub update: Option<String>,
+    /// A newer companion, as the menu line and whether a click installs it (`update::State::menu`); set by the GTK
+    /// side, which owns updates.
+    pub update: Option<(String, bool)>,
 }
 
 /// A folder the quick launch offers.
