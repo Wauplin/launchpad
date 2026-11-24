@@ -34,4 +34,9 @@ linked_at?: number,
 /**
  * The branch tip on Home when it was discarded: `reopen` restores it from `refs/kept/`.
  */
-discarded_head?: string, };
+discarded_head?: string, 
+/**
+ * Its pull request was closed on GitHub (merged or not) at the last read (`sync_github`): Home pushes nothing
+ * more to it, so the branch's next Local PR is a new one (`pick_for_branch`).
+ */
+github_closed?: boolean, };

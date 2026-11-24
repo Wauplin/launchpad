@@ -1396,7 +1396,10 @@ pub async fn finish(app: &App, session_id: &str) -> Result<String> {
                 merges.push(format!("- {} into {}{why}", w.branch, w.base_branch.as_deref().unwrap_or_default()));
             }
             FinishStep::LocalPr => match open_local_pr(app, session_id, w).await? {
-                Opened::Pr(p) => prs.push(format!("- {} into {}: Local PR {}", p.branch, p.base_branch, p.id)),
+                Opened::Pr(p) => match crate::predrafts::published_words(app, &p) {
+                    Some(text) => prs.push(format!("- {} into {}: {text}", p.branch, p.base_branch)),
+                    None => prs.push(format!("- {} into {}: Local PR {}", p.branch, p.base_branch, p.id)),
+                },
                 Opened::Landed(branch, note) => landed.push(format!("- {branch}: {note}")),
             },
             FinishStep::Leave => {}
@@ -1407,7 +1410,7 @@ pub async fn finish(app: &App, session_id: &str) -> Result<String> {
     }
     if !prs.is_empty() {
         parts.push(format!(
-            "Not merged, since you added these folders (`work add-project`) and their When done is not Merge: Local PRs opened for the owner's review instead:\n{}\nSet each one's title and description with `{} pr update --title \"…\" --body-file <file>` in its worktree.",
+            "Not merged, since you added these folders (`work add-project`) and their When done is not Merge: Local PRs opened for the owner's review instead (or continued, when the branch already had one):\n{}\nSet the title and description of each new one with `{} pr update --title \"…\" --body-file <file>` in its worktree.",
             prs.join("\n"),
             app.paths.cli_command()
         ));
@@ -1503,6 +1506,9 @@ async fn finish_local_pr(app: &App, session_id: &str, w: TaskWorktree, publish: 
             return Ok(format!("No Local PR: `{branch}` adds nothing to its base branch on the remote, so Launchpad marked it merged. {note} End your turn and report that there was nothing to review."));
         }
     };
+    if let Some(text) = crate::predrafts::published_words(app, &p) {
+        return Ok(format!("{text} Then end your turn and report the pull request as updated, not merged. Do not open another pull request."));
+    }
     let then = match publish {
         Some(draft) => format!(
             "Then end your turn: Launchpad publishes it on GitHub as {} into `{}` once your turn is saved. Report the pull request as requested, not as opened. Do not push to GitHub or open a pull request yourself.",

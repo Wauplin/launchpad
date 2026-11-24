@@ -245,7 +245,7 @@ async fn render(app: &App, ws: &str, r: &LpRef, before: usize, after: usize) -> 
         }
         RefKind::LocalPr => {
             let p = launchpad_core::predrafts::get(app, &r.id).await?;
-            out.push_str(&format!("A Local PR: branch `{}` into `{}`{}{}. More: `{cli} pr show {}`\n\nIts description:\n", p.branch, p.base_branch, if p.archived { ", closed" } else { "" }, p.published_url.as_deref().map(|u| format!(", published as {u}")).unwrap_or_default(), p.id));
+            out.push_str(&format!("A Local PR: branch `{}` into `{}`{}{}. More: `{cli} pr show --id {}`\n\nIts description:\n", p.branch, p.base_branch, if p.archived { ", closed" } else { "" }, p.published_url.as_deref().map(|u| format!(", published as {u}")).unwrap_or_default(), p.id));
             let text = cut(&p.body, MESSAGE_MAX);
             let fence = launchpad_core::senders::fence(&text);
             out.push_str(&format!("{fence}markdown\n{text}\n{fence}\n"));

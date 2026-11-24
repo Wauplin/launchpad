@@ -82,11 +82,12 @@ fn oracle_test(method: &Method, path: &str) -> bool {
     *method == Method::POST && p.len() == 5 && p[..2] == ["api", "oracles"] && p[4] == "test" && !p.iter().any(|s| s.is_empty())
 }
 
-/// `launchpad pr publish` (`POST /api/predrafts/{id}/publish`): the Local PR's ID. Propose access; Home lets every
-/// bot publish its own Local PRs as drafts (`predrafts::agent_publish_refusal`).
-fn bot_publish<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
-    let id = path.strip_prefix("/api/predrafts/")?.strip_suffix("/publish")?;
-    (*method == Method::POST && !id.is_empty() && !id.contains('/')).then_some(id)
+/// `launchpad pr publish` (`POST /api/predrafts/{id}/publish`) and `launchpad pr update --github` (`…/update-published`):
+/// the Local PR's ID and the action. Propose access; Home lets every bot publish its own Local PRs as drafts and change
+/// their pull requests' title and description (`predrafts::agent_publish_refusal`).
+fn bot_publish<'a>(method: &Method, path: &'a str) -> Option<(&'a str, &'a str)> {
+    let (id, action) = path.strip_prefix("/api/predrafts/")?.split_once('/')?;
+    (*method == Method::POST && !id.is_empty() && matches!(action, "publish" | "update-published")).then_some((id, action))
 }
 
 /// `launchpad channel post` and `launchpad dm`: propose access (Home lets only member bots post), also with
@@ -365,7 +366,7 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         }
         return Ok(Request::from_parts(parts, Body::from(bytes)));
     }
-    if let Some(pr) = bot_publish(req.method(), &path) {
+    if let Some((pr, action)) = bot_publish(req.method(), &path) {
         // A runner forwards it to Home (every Local PR call goes there), which decides from its own records.
         if app.paths.role != launchpad_core::role::Role::Home {
             return Ok(req);
@@ -373,7 +374,7 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         let (parts, body) = req.into_parts();
         let bytes = to_bytes(body, 1 << 20).await.map_err(|_| denied())?;
         let value: Value = serde_json::from_slice(&bytes).map_err(|_| denied())?;
-        launchpad_core::predrafts::agent_publish_refusal(app, id, pr, &value).await.map_err(|e| ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("{e:#}")))?;
+        launchpad_core::predrafts::agent_publish_refusal(app, id, pr, action, &value).await.map_err(|e| ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("{e:#}")))?;
         return Ok(Request::from_parts(parts, Body::from(bytes)));
     }
     if let Some(why) = channel_refusal(req.method(), &path) {
@@ -470,7 +471,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         // `folder.create-git`: the body names the workspace (none: the session's own).
         (false, ["projects", "git"]) => Body,
         (_, ["projects", id] | ["projects", id, "branches"]) => Folder(id),
-        (_, ["predrafts", id] | ["predrafts", id, "record"]) | (false, ["predrafts", id, "publish" | "discard" | "reopen"]) => LocalPr(id),
+        (_, ["predrafts", id] | ["predrafts", id, "record"]) | (false, ["predrafts", id, "publish" | "update-published" | "discard" | "reopen"]) => LocalPr(id),
         (_, ["workspaces", id]) => Workspace(id),
         (false, ["worktrees", id, "discard" | "fix"]) => Worktree(id),
         (_, ["tool-defaults", scope, id]) => Tools(scope, id),
@@ -701,7 +702,9 @@ mod tests {
         assert!(own_write("/api/worktrees/finish"));
         // `launchpad pr publish`: propose access, then Home's own check (a bot's own Local PR, as a draft); never the
         // other publication routes.
-        assert_eq!(bot_publish(&Method::POST, "/api/predrafts/p/publish"), Some("p"));
+        assert_eq!(bot_publish(&Method::POST, "/api/predrafts/p/publish"), Some(("p", "publish")));
+        assert_eq!(bot_publish(&Method::POST, "/api/predrafts/p/update-published"), Some(("p", "update-published")));
+        assert_eq!(names(&Method::POST, "/api/predrafts/p/update-published"), Names::LocalPr("p"));
         assert_eq!(tool_need(&Method::POST, "/api/predrafts/p/publish"), Some(LaunchpadAccess::Propose));
         for path in ["/api/predrafts/p/publish-set", "/api/predrafts/p/merge-local", "/api/predrafts//publish", "/api/predrafts/p/x/publish"] {
             assert_eq!(bot_publish(&Method::POST, path), None, "{path}");

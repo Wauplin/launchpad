@@ -69,6 +69,11 @@ pub struct Predraft {
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discarded_head: Option<String>,
+    /// Its pull request was closed on GitHub (merged or not) at the last read (`sync_github`): Home pushes nothing
+    /// more to it, so the branch's next Local PR is a new one (`pick_for_branch`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub github_closed: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct LocalMerge {
@@ -88,6 +93,21 @@ impl Predraft {
     pub fn agents_can_work(&self) -> bool {
         !self.archived && self.merged.is_none()
     }
+    /// Published on GitHub and still open there: Home pushes the branch's commits to its pull request (unless it
+    /// was linked, `linked_at`).
+    pub fn published_open(&self) -> bool {
+        self.agents_can_work() && self.published_url.is_some() && !self.github_closed
+    }
+}
+/// Pure: the Local PR of a branch among older records, also old duplicates. `reuse`: the record `work finish` and
+/// `pr create` continue (an open one, or a published one whose pull request is still open on GitHub); otherwise the
+/// one `pr show|update` read, which may also be a published one whose pull request was closed. A published record
+/// whose pull request is open wins, then an open one, then the newest.
+pub fn pick_for_branch<'a>(list: &'a [Predraft], project_id: &str, branch: &str, reuse: bool) -> Option<&'a Predraft> {
+    let rank = |p: &Predraft| if p.published_open() { 0 } else if p.is_open() { 1 } else { 2 };
+    list.iter()
+        .filter(|p| p.project_id == project_id && p.branch == branch && p.agents_can_work() && (!reuse || rank(p) < 2))
+        .min_by_key(|p| (rank(p), std::cmp::Reverse(p.created_at)))
 }
 #[derive(Default, Deserialize, Serialize)]
 pub struct Create {
@@ -256,17 +276,18 @@ pub async fn save(app: &App, p: &Predraft) -> Result<()> {
     app.bus.publish("predrafts", "updated", json!(p));
     Ok(())
 }
-/// The open Local PR of a branch.
+/// The Local PR of a branch that is not discarded or merged (`pick_for_branch`, not only for reuse).
 pub async fn for_branch(app: &App, project_id: &str, branch: &str) -> Result<Option<Predraft>> {
-    Ok(list(app).await?.into_iter().find(|p| p.project_id == project_id && p.branch == branch && p.is_open()))
+    Ok(pick_for_branch(&list(app).await?, project_id, branch, false).cloned())
 }
-/// `launchpad pr create|show|update` in a worktree: the Local PR of its branch.
+/// `launchpad pr show|update|publish` in a worktree without `--id`: the Local PR of its branch, the published one
+/// when older duplicates exist.
 pub async fn resolve(app: &App, cwd: &str) -> Result<Predraft> {
     let w = crate::worktrees::find_by_path(app, cwd).await?.context("this folder is not a Launchpad worktree")?;
     for_branch(app, &w.project_id, &w.branch).await?.context("no Local PR for this branch yet; run launchpad pr create")
 }
-/// A Local PR of a Launchpad branch (Home, or forwarded there). An open Local PR of the same branch is
-/// returned, now linked to `session_id`.
+/// A Local PR of a Launchpad branch (Home, or forwarded there). The branch's Local PR, open or published with its
+/// pull request still open on GitHub (`pick_for_branch`), is returned, now linked to `session_id`.
 pub async fn open_for_branch(app: &App, project_id: &str, branch: &str, base: Option<&str>, session_id: Option<&str>, title: Option<String>) -> Result<Predraft> {
     let q = Create { project_id: Some(project_id.into()), branch: Some(branch.into()), base_branch: base.map(str::to_string), session_id: session_id.map(str::to_string), title, ..Default::default() };
     if !crate::home_git::here(app) {
@@ -293,13 +314,22 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
 /// Home: the Local PR of a branch, created or found.
 async fn create_record(app: &App, q: Create) -> Result<Predraft> {
     ensure_home(app)?;
+    // A published Local PR of the branch is continued only while its pull request is open: read GitHub first (a
+    // failed read keeps the last known state).
+    if let (Some(project_id), Some(branch)) = (&q.project_id, &q.branch)
+        && let Some(p) = pick_for_branch(&list(app).await?, project_id, branch, true).filter(|p| p.published_url.is_some())
+        && let Err(e) = sync_github(app, &p.id).await
+    {
+        tracing::warn!("Local PR {}: GitHub state not read: {e:#}", p.id);
+    }
     let _lock = app.predraft_lock.lock().await;
     let project_id = q.project_id.clone().context("project_id required")?;
     let project = crate::projects::get(app, &project_id).await?.context("folder not found")?;
     ensure!(project.home_git, "{} is not a Git folder of Home", project.name);
     let branch = q.branch.clone().context("branch required")?;
     ensure!(branch.starts_with("lp/"), "a Local PR needs a Launchpad branch (lp/…)");
-    if let Some(mut p) = list(app).await?.into_iter().find(|p| p.project_id == project_id && p.branch == branch && p.is_open()) {
+    // Never a second Local PR of a branch: a retry, or a later `work finish` after it was published, continues it.
+    if let Some(mut p) = pick_for_branch(&list(app).await?, &project_id, &branch, true).cloned() {
         if q.session_id.is_some() && p.session_id != q.session_id {
             p.session_id = q.session_id.clone();
             save(app, &p).await?;
@@ -343,9 +373,20 @@ async fn create_record(app: &App, q: Create) -> Result<Predraft> {
         merged: None,
         linked_at: None,
         discarded_head: None,
+        github_closed: false,
     };
     save(app, &p).await?;
     Ok(p)
+}
+/// For `work finish` when the branch's Local PR is already published (`pick_for_branch` continues it): where the
+/// commits go and how to change the pull request's text. None for an unpublished one.
+pub fn published_words(app: &App, p: &Predraft) -> Option<String> {
+    let url = p.published_url.as_ref()?;
+    let cli = app.paths.cli_command();
+    Some(match p.linked_at {
+        Some(_) => format!("Branch `{}` already has Local PR {}, linked to {url}, a pull request opened outside Launchpad: no new Local PR. Home does not push your commits to it, and Launchpad never changes its text: tell the owner what is left to push.", p.branch, p.id),
+        None => format!("Branch `{}` already has Local PR {}, published as {url}: no new Local PR. Home pushes your commits to that pull request on its own once they reach Home (`{cli} pr show --id {}` shows `github`: the commit GitHub has, and `behind` while Home still has newer ones). If the title or description should change, run `{cli} pr update --id {} --github --title \"…\" --body-file <file>` (a bot's own Local PR; else ask the owner).", p.branch, p.id, p.id, p.id),
+    })
 }
 /// Launch instructions for an agent that works on a Local PR's branch.
 pub fn instruction(app: &App, p: &Predraft) -> String {
@@ -369,6 +410,29 @@ fn editable(p: &Predraft) -> Result<()> {
     ensure!(p.is_open(), "this Local PR is archived, published or merged");
     Ok(())
 }
+/// Pure: why `update` (the record only) refuses a published Local PR, with what to do instead. Its text is the pull
+/// request's on GitHub: it changes only together with it (`update_published`), never silently in the record alone.
+fn published_refusal(p: &Predraft) -> Option<String> {
+    let url = p.published_url.as_ref().filter(|_| p.agents_can_work())?;
+    Some(match p.linked_at {
+        Some(_) => format!("this Local PR is linked to {url}, a pull request opened outside Launchpad: Launchpad never changes it; edit it on GitHub"),
+        None => format!("this Local PR is published as {url}: its title and description are the pull request's; change both with `pr update --github` (action local-pr.update-published)"),
+    })
+}
+/// Pure: why the title and description of a Local PR's pull request may not change on GitHub (`update_published`).
+fn published_text_refusal(p: &Predraft) -> Option<&'static str> {
+    if p.archived {
+        Some("this Local PR is discarded")
+    } else if p.merged.is_some() {
+        Some("this Local PR is merged")
+    } else if p.published_url.is_none() {
+        Some("this Local PR is not published yet: change its text without --github; Publish uses it")
+    } else if p.linked_at.is_some() {
+        Some("this Local PR is linked to a pull request opened outside Launchpad: Launchpad never changes it; edit it on GitHub")
+    } else {
+        None
+    }
+}
 /// The agent of the Local PR is not running.
 fn agents_idle(app: &App, p: &Predraft) -> Result<()> {
     ensure!(
@@ -381,6 +445,9 @@ pub async fn update(app: &App, id: &str, q: Patch) -> Result<Predraft> {
     ensure_home(app)?;
     let _lock = app.predraft_lock.lock().await;
     let mut p = get(app, id).await?;
+    if let Some(why) = published_refusal(&p) {
+        anyhow::bail!("{why}");
+    }
     editable(&p)?;
     if let Some(t) = q.title {
         ensure!(!t.trim().is_empty(), "title is empty");
@@ -447,7 +514,28 @@ pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     let remote = p.remote_branch.clone().unwrap_or_else(|| p.default_remote_branch.clone());
     // A published Local PR: whether GitHub has the branch's commit on Home yet.
     let github = if p.published_url.is_some() { crate::home_git::follow_status(app, &p.project_id, &p.branch).await? } else { None };
-    Ok(json!({"predraft":p,"status":status,"github":github,"github_error":github_error,"head":head,"base":merge_base,"base_ahead":ahead,"commits":commits.lines().collect::<Vec<_>>(),"files":crate::diff::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote,"change_set":set}))
+    let sync = sync_words(&p, github.as_ref());
+    Ok(json!({"predraft":p,"status":status,"github":github,"sync":sync,"github_error":github_error,"head":head,"base":merge_base,"base_ahead":ahead,"commits":commits.lines().collect::<Vec<_>>(),"files":crate::diff::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote,"change_set":set}))
+}
+/// Pure: whether the branch's commits reach a published Local PR's pull request, in words (`pr show`). `pushed_head`
+/// is only the commit of the first publication; `follow` (`home_git::follow_status`) is Home's push of later ones.
+pub(crate) fn sync_words(p: &Predraft, follow: Option<&crate::home_git::FollowStatus>) -> Option<String> {
+    let url = p.published_url.as_ref()?;
+    let short = |c: &Option<String>| c.as_deref().map(|c| short(c).to_string()).unwrap_or_else(|| "nothing".into());
+    Some(if p.merged.is_some() {
+        format!("Merged ({url}).")
+    } else if p.linked_at.is_some() {
+        format!("Linked to {url}, opened outside Launchpad: Home pushes nothing to it; new commits stay on Home.")
+    } else if p.github_closed {
+        format!("{url} is closed on GitHub: Home pushes nothing more to it; the branch's next `work finish` opens a new Local PR.")
+    } else {
+        match follow {
+            None => format!("Published as {url}, but Home does not push this branch to it (no follow): new commits stay on Home."),
+            Some(f) if f.error.is_some() => format!("Home could not push {} to {url}: {}", short(&f.head), f.error.as_deref().unwrap_or_default()),
+            Some(f) if f.behind => format!("Home pushes new commits to {url} on its own; GitHub has {}, Home has {} (not on GitHub yet).", short(&f.forwarded), short(&f.head)),
+            Some(f) => format!("Up to date: {url} has the branch's commit {} on Home; Home pushes new commits there on its own.", short(&f.head)),
+        }
+    })
 }
 /// The other Local PRs of the same change set, with their folders and the commit shown (`head`, the one Publish
 /// all publishes).
@@ -819,11 +907,7 @@ pub async fn sync_github(app: &App, id: &str) -> Result<Option<Predraft>> {
 async fn sync_locked(app: &App, id: &str) -> Result<Option<Predraft>> {
     let p = get(app, id).await?;
     let (Some(url), false, None) = (&p.published_url, p.archived, &p.merged) else { return Ok(None) };
-    let repo = published_repo(url).with_context(|| format!("{url} is not a GitHub pull request"))?;
-    let number = match p.published_number {
-        Some(n) => n,
-        None => url.split("/pull/").nth(1).and_then(|n| n.split(['/', '#', '?']).next()).and_then(|n| n.parse().ok()).with_context(|| format!("no pull request number in {url}"))?,
-    };
+    let (repo, number) = pull_request(&p)?;
     let pr = read_pr(app, &repo, number).await?;
     ensure!(pr.number == number && pr.base_repo.eq_ignore_ascii_case(&repo), "GitHub answered {}#{} for {url}", pr.base_repo, pr.number);
     // Merged on GitHub: Home never pushes there again, whatever the record says next.
@@ -838,8 +922,13 @@ async fn sync_locked(app: &App, id: &str) -> Result<Option<Predraft>> {
     if crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await? != tip || p.published_url.as_deref() != Some(url.as_str()) {
         return Ok(None);
     }
+    // Closed on GitHub (merged or not): the branch's next `work finish` opens a new Local PR. Reopened: it continues.
+    let closed = pr.closed || pr.merged_at.is_some();
+    let flag = p.github_closed != closed;
+    p.github_closed = closed;
     match github_sync(&p, &pr, contained) {
-        Sync::Nothing => return Ok(None),
+        Sync::Nothing if !flag => return Ok(None),
+        Sync::Nothing => {}
         Sync::Merged(m) => {
             tracing::info!("Local PR {id}: {url} merged on GitHub");
             p.merged = Some(m);
@@ -848,6 +937,59 @@ async fn sync_locked(app: &App, id: &str) -> Result<Option<Predraft>> {
     }
     save(app, &p).await?;
     Ok(Some(p))
+}
+/// `owner/name` and number of a published Local PR's pull request.
+fn pull_request(p: &Predraft) -> Result<(String, u64)> {
+    let url = p.published_url.as_deref().context("this Local PR is not published")?;
+    let repo = published_repo(url).with_context(|| format!("{url} is not a GitHub pull request"))?;
+    let number = match p.published_number {
+        Some(n) => n,
+        None => url.split("/pull/").nth(1).and_then(|n| n.split(['/', '#', '?']).next()).and_then(|n| n.parse().ok()).with_context(|| format!("no pull request number in {url}"))?,
+    };
+    Ok((repo, number))
+}
+#[derive(Deserialize)]
+pub struct PublishedText {
+    pub title: Option<String>,
+    pub body: Option<String>,
+}
+/// Changes the title and description of a published Local PR's pull request on GitHub, then the record, so both
+/// stay the same (`pr update --github`, action `local-pr.update-published`): the owner's click, or a bot for its
+/// own Local PR (`agent_publish_refusal`). Only pull requests Launchpad published, never a linked one. The body is
+/// signed like Publish's, for `origin`; the same text again writes the same pull request (safe to retry). Nothing
+/// changes when GitHub refuses.
+pub async fn update_published(app: &App, id: &str, q: PublishedText, origin: crate::attribution::Origin) -> Result<Predraft> {
+    ensure_home(app)?;
+    let publication = app.suggestion_locks.get(&format!("predraft-publish:{id}"));
+    let _publication = publication.lock().await;
+    let mut p = get(app, id).await?;
+    if let Some(why) = published_text_refusal(&p) {
+        anyhow::bail!("{why}");
+    }
+    ensure!(q.title.is_some() || q.body.is_some(), "nothing to change: give a title, a body or both");
+    if let Some(t) = &q.title {
+        ensure!(!t.trim().is_empty(), "title is empty");
+        p.title = t.clone();
+    }
+    if let Some(b) = &q.body {
+        p.body = b.clone();
+    }
+    let (repo, number) = pull_request(&p)?;
+    let mut patch = json!({});
+    if q.title.is_some() {
+        patch["title"] = json!(p.title);
+    }
+    if q.body.is_some() {
+        patch["body"] = json!(published_body(app, &p, &published_siblings(app, &p).await?, origin));
+    }
+    app.github.request(Method::PATCH, &format!("/repos/{repo}/pulls/{number}"), Some(patch)).await.with_context(|| format!("update {repo}#{number} on GitHub"))?;
+    let _lock = app.predraft_lock.lock().await;
+    let mut now = get(app, id).await?;
+    now.title = p.title;
+    now.body = p.body;
+    save(app, &now).await?;
+    tracing::info!("Local PR {id}: title and description of {repo}#{number} updated");
+    Ok(now)
 }
 /// When Home last read a Local PR's pull request for a page read (`detail`), by Local PR ID.
 static LAST_SYNC: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, i64>>> = std::sync::LazyLock::new(Default::default);
@@ -989,7 +1131,8 @@ pub async fn publish(app: &App, id: &str, q: Publish, posted: crate::attribution
 /// /api/predrafts/{id}/publish`, checked by `agent_auth` before `publish`). Every bot publishes, only a Local PR of
 /// one of its own sessions and only as a draft from the folder's own remote. When to publish is the bot's call, from its instructions (whoever asked it).
 /// `publish` then checks the reviewed head like the owner's Publish.
-pub async fn agent_publish_refusal(app: &App, session_id: &str, id: &str, body: &Value) -> Result<()> {
+/// `action` `update-published` (`pr update --github`) is checked the same way, without the draft rule.
+pub async fn agent_publish_refusal(app: &App, session_id: &str, id: &str, action: &str, body: &Value) -> Result<()> {
     let s = app.sessions.get(session_id).context("Home has no record of this session")?;
     let bot = match &s.launch_spec.bot {
         Some(b) => crate::bots::get(app, &b.id).await.ok(),
@@ -999,19 +1142,21 @@ pub async fn agent_publish_refusal(app: &App, session_id: &str, id: &str, body: 
     let p = get(app, id).await?;
     let author_bot = p.session_id.as_deref().and_then(|a| app.sessions.get(a)).and_then(|a| a.launch_spec.bot).map(|b| b.id);
     let own = bot.as_ref().is_some_and(|b| author_bot.as_deref() == Some(b.id.as_str()));
-    if let Some(why) = publish_refusal(allowed, own, body) {
+    if let Some(why) = publish_refusal(allowed, own, (action == "publish").then_some(body)) {
         anyhow::bail!("{why}");
     }
     Ok(())
 }
 
-/// Pure: `agent_publish_refusal`'s decision.
-fn publish_refusal(allowed: bool, own: bool, body: &Value) -> Option<&'static str> {
+/// Pure: `agent_publish_refusal`'s decision. `publish`: the publication's body (None: a text update).
+fn publish_refusal(allowed: bool, own: bool, publish: Option<&Value>) -> Option<&'static str> {
     if !allowed {
-        Some("only bots publish Local PRs; ask the owner to publish it, or file a ready card with `launchpad propose ready` (action local-pr.publish)")
+        Some("only bots publish Local PRs or change their pull requests; ask the owner (actions local-pr.publish and local-pr.update-published)")
     } else if !own {
-        Some("a bot publishes only the Local PRs of its own sessions")
-    } else if body["draft"] != Value::Bool(true) || body["fork"] == Value::Bool(true) {
+        Some("a bot publishes and changes only the Local PRs of its own sessions")
+    } else if let Some(body) = publish
+        && (body["draft"] != Value::Bool(true) || body["fork"] == Value::Bool(true))
+    {
         Some("a bot publishes only draft pull requests from the folder's own remote (draft: true, no fork); the owner marks it ready for review")
     } else {
         None

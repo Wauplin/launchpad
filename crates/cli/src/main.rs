@@ -1346,20 +1346,35 @@ enum Pr {
         #[arg(long)]
         body_file: Option<std::path::PathBuf>,
     },
-    /// Update the local PR for the current worktree.
+    /// Update a Local PR's title and description (default: the Local PR of the current worktree's branch, the
+    /// published one when the branch has older duplicates). A published Local PR changes only with `--github`.
     Update {
+        /// The Local PR to change.
+        #[arg(long)]
+        id: Option<String>,
         #[arg(long)]
         title: Option<String>,
         /// Markdown body; Fixes #N, Closes #N or Resolves #N links issues in the folder repository.
         #[arg(long)]
         body_file: Option<std::path::PathBuf>,
+        /// The Local PR is published: also change its pull request's title and description on GitHub (pull requests
+        /// Launchpad published only, never a linked one; a bot changes only its own Local PRs, else ask the owner).
+        #[arg(long)]
+        github: bool,
     },
-    /// Show the local PR for the current worktree.
-    Show,
+    /// Show a Local PR (default: the one of the current worktree's branch, the published one when the branch has
+    /// older duplicates). For a published one, `sync` and `github` say whether its pull request has the branch's
+    /// commits: Home pushes new commits of the branch there on its own (`pushed_head` is only the first publication's).
+    Show {
+        /// The Local PR to show.
+        #[arg(long)]
+        id: Option<String>,
+    },
     /// List local PRs, including published and archived records.
     List,
     /// Publish a Local PR of this bot as a draft pull request on GitHub, at the commit you checked. Only a bot's own
-    /// Local PRs.
+    /// Local PRs. Once published, Home pushes the branch's new commits to the pull request on its own (see `pr show`);
+    /// publishing again changes nothing, and `pr update --github` changes its title and description.
     Publish {
         /// The Local PR (default: the one of the current worktree).
         #[arg(long)]
@@ -1380,13 +1395,24 @@ async fn pr_command(paths: &Paths, command: Pr) -> Result<()> {
     let body = match command {
         Pr::List => client.json("GET", "/api/predrafts", None).await?,
         Pr::Create { title, body_file } => client.json("POST", "/api/predrafts", Some(serde_json::json!({"cwd":cwd,"title":title,"body":body_file.map(std::fs::read_to_string).transpose()?}))).await?,
-        Pr::Show => {
-            let p = resolve().await?;
-            client.json("GET", &format!("/api/predrafts/{}", id(&p)?), None).await?
+        Pr::Show { id: pr } => {
+            let pr = match pr {
+                Some(pr) => pr,
+                None => id(&resolve().await?)?,
+            };
+            client.json("GET", &format!("/api/predrafts/{pr}"), None).await?
         }
-        Pr::Update { title, body_file } => {
-            let p = resolve().await?;
-            client.json("PATCH", &format!("/api/predrafts/{}", id(&p)?), Some(serde_json::json!({"title":title,"body":body_file.map(std::fs::read_to_string).transpose()?}))).await?
+        Pr::Update { id: pr, title, body_file, github } => {
+            let pr = match pr {
+                Some(pr) => pr,
+                None => id(&resolve().await?)?,
+            };
+            let body = serde_json::json!({"title":title,"body":body_file.map(std::fs::read_to_string).transpose()?});
+            if github {
+                client.json("POST", &format!("/api/predrafts/{pr}/update-published"), Some(body)).await?
+            } else {
+                client.json("PATCH", &format!("/api/predrafts/{pr}"), Some(body)).await?
+            }
         }
         Pr::Publish { id: pr, head, remote_branch } => {
             let pr = match pr {

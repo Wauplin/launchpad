@@ -38,6 +38,7 @@ fn local_pr(id: &str, branch: &str) -> super::Predraft {
         change_set: None,
         linked_at: None,
         discarded_head: None,
+        github_closed: false,
     }
 }
 
@@ -78,14 +79,14 @@ fn a_branch_contained_in_its_base_reads_as_merged() {
 fn bots_publish_only_their_own_drafts() {
     use super::publish_refusal;
     let draft = serde_json::json!({"remote_branch": "fix", "draft": true, "head": "abc"});
-    assert_eq!(publish_refusal(true, true, &draft), None);
+    assert_eq!(publish_refusal(true, true, Some(&draft)), None);
     // Not turned on, or another bot's Local PR.
-    assert!(publish_refusal(false, true, &draft).is_some());
-    assert!(publish_refusal(true, false, &draft).is_some());
+    assert!(publish_refusal(false, true, Some(&draft)).is_some());
+    assert!(publish_refusal(true, false, Some(&draft)).is_some());
     // Ready for review or from a fork stays the owner's.
-    assert!(publish_refusal(true, true, &serde_json::json!({"remote_branch": "fix", "draft": false, "head": "abc"})).is_some());
-    assert!(publish_refusal(true, true, &serde_json::json!({"remote_branch": "fix", "head": "abc"})).is_some());
-    assert!(publish_refusal(true, true, &serde_json::json!({"remote_branch": "fix", "draft": true, "fork": true, "head": "abc"})).is_some());
+    assert!(publish_refusal(true, true, Some(&serde_json::json!({"remote_branch": "fix", "draft": false, "head": "abc"}))).is_some());
+    assert!(publish_refusal(true, true, Some(&serde_json::json!({"remote_branch": "fix", "head": "abc"}))).is_some());
+    assert!(publish_refusal(true, true, Some(&serde_json::json!({"remote_branch": "fix", "draft": true, "fork": true, "head": "abc"}))).is_some());
 }
 
 const HEAD: &str = "9ca18f08b5bb564a169090102b73cdc5fbe3546d";
@@ -219,4 +220,64 @@ fn reopen_restores_the_discarded_tip_unless_the_branch_is_back() {
     p.discarded_head = Some("t1".into());
     p.merged = Some(super::LocalMerge { head: "m".into(), at: 1, github: false });
     assert!(super::reopen_restores(&p, None, false).is_err());
+}
+
+#[test]
+fn a_branch_keeps_one_local_pr_and_the_published_one_wins() {
+    use super::pick_for_branch;
+    let url = Some("https://github.com/o/r/pull/1".to_string());
+    let published = super::Predraft { published_url: url.clone(), created_at: 1, ..local_pr("published", "lp/a") };
+    let duplicate = super::Predraft { created_at: 2, ..local_pr("duplicate", "lp/a") };
+    let discarded = super::Predraft { archived: true, created_at: 3, ..local_pr("discarded", "lp/a") };
+    let list = vec![published.clone(), duplicate.clone(), discarded];
+    // `work finish` and `pr create` continue the published one; `pr show|update` read it too.
+    assert_eq!(pick_for_branch(&list, "folder", "lp/a", true).map(|p| p.id.as_str()), Some("published"));
+    assert_eq!(pick_for_branch(&list, "folder", "lp/a", false).map(|p| p.id.as_str()), Some("published"));
+    assert!(pick_for_branch(&list, "other", "lp/a", true).is_none());
+    // Its pull request closed on GitHub: a new Local PR, and the open one wins for reads.
+    let closed = super::Predraft { github_closed: true, ..published.clone() };
+    assert!(pick_for_branch(std::slice::from_ref(&closed), "folder", "lp/a", true).is_none());
+    assert_eq!(pick_for_branch(std::slice::from_ref(&closed), "folder", "lp/a", false).map(|p| p.id.as_str()), Some("published"));
+    assert_eq!(pick_for_branch(&[closed, duplicate], "folder", "lp/a", true).map(|p| p.id.as_str()), Some("duplicate"));
+    // Merged records are never continued.
+    let merged = super::Predraft { merged: Some(super::LocalMerge { head: "h".into(), at: 1, github: true }), ..published };
+    assert!(pick_for_branch(&[merged], "folder", "lp/a", false).is_none());
+}
+
+#[test]
+fn only_pull_requests_launchpad_published_change_on_github() {
+    use super::{published_refusal, published_text_refusal};
+    let open = local_pr("p", "lp/a");
+    assert!(published_refusal(&open).is_none());
+    assert!(published_text_refusal(&open).is_some());
+    let published = super::Predraft { published_url: Some("https://github.com/o/r/pull/1".into()), published_number: Some(1), ..open };
+    // The record alone never changes: `--github` changes both.
+    assert!(published_refusal(&published).unwrap().contains("--github"));
+    assert_eq!(published_text_refusal(&published), None);
+    let linked = super::Predraft { linked_at: Some(1), ..published.clone() };
+    assert!(published_refusal(&linked).unwrap().contains("outside Launchpad"));
+    assert!(published_text_refusal(&linked).is_some());
+    let discarded = super::Predraft { archived: true, ..published };
+    assert!(published_refusal(&discarded).is_none() && published_text_refusal(&discarded).is_some());
+    // A bot changes its own pull request's text; the draft rule is publication's.
+    assert_eq!(super::publish_refusal(true, true, None), None);
+    assert!(super::publish_refusal(true, false, None).is_some());
+}
+
+#[test]
+fn published_sync_state_reads_in_words() {
+    use crate::home_git::FollowStatus;
+    let url = "https://github.com/o/r/pull/1";
+    let open = local_pr("p", "lp/a");
+    assert_eq!(super::sync_words(&open, None), None);
+    let p = super::Predraft { published_url: Some(url.into()), ..open };
+    let follow = |head: &str, forwarded: &str, error: Option<&str>| FollowStatus { url: url.into(), head: Some(head.into()), forwarded: Some(forwarded.into()), behind: head != forwarded, error: error.map(str::to_string) };
+    assert!(super::sync_words(&p, Some(&follow("aaa", "aaa", None))).unwrap().starts_with("Up to date"));
+    assert!(super::sync_words(&p, Some(&follow("bbb", "aaa", None))).unwrap().contains("not on GitHub yet"));
+    assert!(super::sync_words(&p, Some(&follow("bbb", "aaa", Some("rejected")))).unwrap().contains("rejected"));
+    assert!(super::sync_words(&p, None).unwrap().contains("no follow"));
+    let linked = super::Predraft { linked_at: Some(1), ..p.clone() };
+    assert!(super::sync_words(&linked, Some(&follow("aaa", "aaa", None))).unwrap().contains("pushes nothing"));
+    let closed = super::Predraft { github_closed: true, ..p };
+    assert!(super::sync_words(&closed, None).unwrap().contains("closed on GitHub"));
 }
