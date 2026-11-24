@@ -7,25 +7,21 @@ use crate::home::{Home, HomeError};
 use crate::links::Links;
 use crate::spot::Pasted;
 
-/// The body of `POST /api/bots/{id}/message`: a new thread (`thread` None, `new_thread`, like the web's top-bar Ask)
-/// or a reply in one, accepted at once (`accept`), with the uploaded attachments (name, `upload:` reference).
-pub fn ask_body(text: &str, thread: Option<&str>, attachments: &[(String, String)]) -> Value {
+/// The body of `POST /api/bots/{id}/message`: always a new thread (`new_thread`, like the web's top-bar Ask, which
+/// never continues one), accepted at once (`accept`), with the uploaded attachments (name, `upload:` reference).
+pub fn ask_body(text: &str, attachments: &[(String, String)]) -> Value {
     let attachments: Vec<Value> = attachments.iter().map(|(name, data_url)| json!({"name": name, "data_url": data_url})).collect();
-    match thread {
-        None => json!({"text": text, "attachments": attachments, "new_thread": true, "accept": true}),
-        Some(t) => json!({"text": text, "attachments": attachments, "thread": t, "accept": true}),
-    }
+    json!({"text": text, "attachments": attachments, "new_thread": true, "accept": true})
 }
 
 /// Sends an ask: uploads its pasted images first (`POST /api/uploads`, the web's path), then the message (see
-/// `ask_body`); `key` (the Idempotency-Key) becomes the new session's ID, or the message's `client_id`. Answers the
-/// receipt's thread.
-pub async fn ask(home: &Home, bot: &str, text: &str, thread: Option<&str>, key: &str, files: &[Pasted]) -> Result<String, HomeError> {
+/// `ask_body`); `key` (the Idempotency-Key) becomes the new thread's session ID. Answers the receipt's thread.
+pub async fn ask(home: &Home, bot: &str, text: &str, key: &str, files: &[Pasted]) -> Result<String, HomeError> {
     let mut attachments = Vec::with_capacity(files.len());
     for f in files {
         attachments.push((f.name.clone(), home.upload(&f.bytes, &f.mime).await?));
     }
-    let body = ask_body(text, thread, &attachments);
+    let body = ask_body(text, &attachments);
     let receipt = home.write(reqwest::Method::POST, &format!("/api/bots/{bot}/message"), &body, Some(key)).await?;
     Ok(receipt.get("thread").and_then(Value::as_str).unwrap_or_default().to_string())
 }
@@ -130,14 +126,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ask_body_new_thread_or_reply_with_attachments() {
+    fn every_ask_is_a_new_thread_with_its_own_key() {
+        // Two sends to the same bot, with and without an image (and whatever answer shows: an ask never names a
+        // thread): both ask for a new thread, under distinct Idempotency-Keys (the new sessions' IDs).
         let files = vec![("Pasted image.png".to_string(), "upload:image/png;ab".to_string())];
-        let new = ask_body("", None, &files);
-        assert_eq!(new["new_thread"], true);
-        assert!(new.get("thread").is_none());
-        assert_eq!(new["attachments"], json!([{"name": "Pasted image.png", "data_url": "upload:image/png;ab"}]));
-        let reply = ask_body("more", Some("t1"), &[]);
-        assert_eq!((reply["thread"].as_str(), reply.get("new_thread"), reply["attachments"].as_array().map(Vec::len)), (Some("t1"), None, Some(0)));
+        let (first, second) = (ask_body("look", &[]), ask_body("", &files));
+        for body in [&first, &second] {
+            assert_eq!((body["new_thread"].as_bool(), body.get("thread"), body["accept"].as_bool()), (Some(true), None, Some(true)));
+        }
+        assert_eq!(second["attachments"], json!([{"name": "Pasted image.png", "data_url": "upload:image/png;ab"}]));
+        assert_ne!(crate::spot::new_key(), crate::spot::new_key());
     }
 
     #[test]

@@ -195,7 +195,7 @@ impl Ctx {
 
     fn on_spot(self: &Rc<Self>, out: spotlight::Out) {
         match out {
-            spotlight::Out::Ask { bot, text, thread, session, key, files } => self.send(Cmd::Ask { bot, text, thread, session, key, files }),
+            spotlight::Out::Ask { bot, text, key, files } => self.send(Cmd::Ask { bot, text, key, files }),
             spotlight::Out::Answer { session, request, count, text } => self.send(Cmd::Answer { session, request, count, text }),
             spotlight::Out::Open(url) => desktop::open(&url),
             spotlight::Out::Launch(text) => self.open_quick(&text),

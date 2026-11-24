@@ -52,9 +52,9 @@ pub enum Cmd {
     Linked { link: HomeLink, device: String, hf: Option<HfAuth> },
     /// The spotlight's `/workspace` and Ctrl+W.
     NextWorkspace,
-    /// Ask a bot: a new thread, or a reply in `thread` (whose session is `session`). `key` is the Idempotency-Key.
-    /// `files`: pasted images, uploaded before the message.
-    Ask { bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String, files: Vec<spot::Pasted> },
+    /// Ask a bot in a new thread; `key` is the Idempotency-Key and the new session's ID. `files`: pasted images,
+    /// uploaded before the message.
+    Ask { bot: BotInfo, text: String, key: String, files: Vec<spot::Pasted> },
     /// Typed text answering the open question `request` of `session` (`POST /api/sessions/{id}/answer`).
     Answer { session: String, request: String, count: usize, text: String },
     /// Quick launch (`POST /api/sessions`); `key` is the Idempotency-Key.
@@ -376,8 +376,8 @@ impl Engine {
                 }
                 false
             }
-            Cmd::Ask { bot, text, thread, session, key, files } => {
-                self.ask(bot, text, thread, session, key, files);
+            Cmd::Ask { bot, text, key, files } => {
+                self.ask(bot, text, key, files);
                 false
             }
             Cmd::AskSent { session, thread } => {
@@ -545,11 +545,11 @@ impl Engine {
         });
     }
 
-    /// Registers the ask before sending it, so no event of its session is missed: a new thread's session takes the
-    /// message's key as its ID; a reply continues the thread's session.
-    fn ask(&mut self, bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String, files: Vec<spot::Pasted>) {
-        let session = session.unwrap_or_else(|| key.clone());
-        let watch = self.watches.entry(session.clone()).or_insert_with(|| Watch { key: key.clone(), bot: bot.clone(), thread: thread.clone(), events: Vec::new(), last_seq: 0, error: None });
+    /// Registers the ask before sending it, so no event of its session is missed: the new thread's session takes the
+    /// message's key as its ID.
+    fn ask(&mut self, bot: BotInfo, text: String, key: String, files: Vec<spot::Pasted>) {
+        let session = key.clone();
+        let watch = self.watches.entry(session.clone()).or_insert_with(|| Watch { key: key.clone(), bot: bot.clone(), thread: None, events: Vec::new(), last_seq: 0, error: None });
         watch.key = key.clone();
         watch.error = None;
         // Keep the newest asks only.
@@ -566,7 +566,7 @@ impl Engine {
             return;
         };
         tokio::spawn(async move {
-            let thread = actions::ask(&home, &bot_id, &text, thread.as_deref(), &key, &files).await.map_err(|e| e.message);
+            let thread = actions::ask(&home, &bot_id, &text, &key, &files).await.map_err(|e| e.message);
             let _ = tx.send(Cmd::AskSent { session, thread });
         });
     }

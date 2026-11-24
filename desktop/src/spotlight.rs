@@ -49,7 +49,8 @@ fn encode(texture: &gdk::Texture) -> (Vec<u8>, &'static str) {
 /// What the spotlight asks of the application.
 pub enum Out {
     /// `key`: the message's Idempotency-Key (a new thread's session ID); `files`: the pasted images.
-    Ask { bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String, files: Vec<Pasted> },
+    /// Always a new thread (like the browser's top-bar Ask), also to the bot whose answer shows.
+    Ask { bot: BotInfo, text: String, key: String, files: Vec<Pasted> },
     /// Typed text that answers the open question of `session` (`session.answer`, like the web chat's box).
     Answer { session: String, request: String, count: usize, text: String },
     Open(String),
@@ -72,7 +73,8 @@ struct State {
     kept: Kept,
     /// The last objects opened from the spotlight (label, URL), newest first.
     recent: Vec<(String, String)>,
-    /// The ask the spotlight shows (answer mode); None in input mode.
+    /// The ask whose answer the spotlight shows; None in input mode. Only its open question takes typed text (as an
+    /// answer); a message never continues its thread.
     ask: Option<AskView>,
     /// The key of the last message the spotlight sent: it follows that ask only.
     sent: Option<String>,
@@ -347,7 +349,7 @@ impl Spotlight {
             let st = self.state.borrow();
             let target = st.targets.get(st.target);
             let cx = spot::Context { bots: &st.data.bots, target, entries: &st.data.entries, needs: &st.data.needs, recent: &st.recent, live: st.data.live };
-            if st.ask.is_some() && !text.starts_with(['>', '/', '@']) {
+            if st.ask.as_ref().is_some_and(|a| a.answer.request.is_some()) && !text.starts_with(['>', '/', '@']) {
                 Vec::new()
             } else if !st.pasted.is_empty() && text.trim().is_empty() {
                 // Pasted images alone are an Ask of the current bot.
@@ -406,8 +408,8 @@ impl Spotlight {
 
     fn update_target(&self) {
         let st = self.state.borrow();
-        let label = match (&st.ask, st.targets.get(st.target)) {
-            (Some(a), _) => format!("Reply to {}", a.bot.name),
+        let label = match (st.ask.as_ref().filter(|a| a.answer.request.is_some()), st.targets.get(st.target)) {
+            (Some(a), _) => format!("Answer {}", a.bot.name),
             (None, Some(Target::Bot(b))) => format!("Ask {}", b.name),
             (None, Some(Target::NewAgent)) => "New agent".into(),
             (None, None) => "Go to".into(),
@@ -420,10 +422,12 @@ impl Spotlight {
         let st = self.state.borrow();
         let text = if let Some(e) = &st.error {
             e.clone()
+        } else if st.ask.as_ref().is_some_and(|a| a.answer.request.is_some()) && self.entry.text().is_empty() && st.pasted.is_empty() {
+            "Type your answer to the question · Ctrl+O: open the thread · Ctrl+N: new ask · Esc: close (the thread keeps running)".into()
+        } else if st.ask.as_ref().is_some_and(|a| a.answer.request.is_some()) && !self.entry.text().starts_with(['>', '/', '@']) {
+            "Enter: answer the question · Ctrl+Enter: answer and open the thread · Ctrl+N: new ask".into()
         } else if st.ask.is_some() && self.entry.text().is_empty() && st.pasted.is_empty() {
-            "Type to reply in the same thread · Ctrl+O: open the thread · Ctrl+N: new ask · Esc: close (the thread keeps running)".into()
-        } else if st.ask.is_some() && !self.entry.text().starts_with(['>', '/', '@']) {
-            "Enter: reply in the same thread · Ctrl+Enter: reply and open the thread · Ctrl+N: new ask".into()
+            "Type to ask again (a new thread) · Ctrl+O: open this thread · Ctrl+N: clear · Esc: close (the thread keeps running)".into()
         } else {
             drop(st);
             let selected = self.list.selected_row().and_then(|r| r.child()).and_then(|c| c.downcast::<gtk::Label>().ok()).map(|l| l.text().to_string());
@@ -525,19 +529,14 @@ impl Spotlight {
     fn enter(&self, ctrl: bool) {
         let text = self.entry.text().to_string();
         let images = !self.state.borrow().pasted.is_empty();
-        let reply = self.state.borrow().ask.clone().filter(|_| (images || !text.trim().is_empty()) && !text.starts_with(['>', '/', '@']));
-        if let Some(a) = reply {
-            // An open question takes the typed text as its answer (a new message would wait behind it); a
-            // permission request never does.
-            if let Some(r) = a.answer.request.clone() {
-                if r.permission {
-                    self.error("This is a permission request: Allow or Deny it in the browser (Ctrl+O)");
-                    return;
-                }
-                if images {
-                    self.error("An answer to a question is text only: answer it, then send the images, or answer in the browser (Ctrl+O)");
-                    return;
-                }
+        // An open question takes the typed text as its answer (a permission request never does); any other text is
+        // a new ask in a new thread (the selected row), even to the bot whose answer shows.
+        let shown = self.state.borrow().ask.clone();
+        let question = shown.as_ref().and_then(|a| a.answer.request.clone());
+        match spot::on_enter(question.as_ref().map(|r| r.permission), &text, images) {
+            spot::OnEnter::Refuse(why) => return self.error(why),
+            spot::OnEnter::Answer => {
+                let (Some(a), Some(r)) = (shown, question) else { return };
                 (self.out)(Out::Answer { session: a.session.clone(), request: r.id, count: r.count, text: text.trim().to_string() });
                 self.entry.set_text("");
                 if ctrl {
@@ -545,13 +544,15 @@ impl Spotlight {
                 }
                 return;
             }
-            self.send_ask(a.bot.clone(), text.trim().to_string(), a.thread.clone(), Some(a.session.clone()));
-            if ctrl {
-                self.open_thread();
+            spot::OnEnter::Nothing => {
+                if ctrl {
+                    self.open_thread();
+                }
+                return;
             }
-            return;
+            spot::OnEnter::Row => {}
         }
-        if self.state.borrow().ask.is_some() && text.trim().is_empty() {
+        if shown.is_some() && text.trim().is_empty() && !images {
             if ctrl {
                 self.open_thread();
             }
@@ -560,7 +561,7 @@ impl Spotlight {
         let Some(act) = self.selected() else { return };
         match act {
             Act::Ask { bot, text } => {
-                let key = self.send_ask(bot, text, None, None);
+                let key = self.send_ask(bot, text);
                 // The new thread is known only once Home accepted the message (`on_ask`).
                 self.state.borrow_mut().open_when_known = ctrl.then_some(key);
             }
@@ -607,7 +608,8 @@ impl Spotlight {
         }
     }
 
-    fn send_ask(&self, bot: BotInfo, text: String, thread: Option<String>, session: Option<String>) -> String {
+    /// A new thread of `bot` for this text and the pasted images, under a fresh key.
+    fn send_ask(&self, bot: BotInfo, text: String) -> String {
         let key = spot::new_key();
         let files = {
             let mut st = self.state.borrow_mut();
@@ -616,7 +618,7 @@ impl Spotlight {
             st.open_when_known = None;
             std::mem::take(&mut st.pasted).into_iter().map(|(p, _)| p).collect()
         };
-        (self.out)(Out::Ask { bot, text, thread, session, key: key.clone(), files });
+        (self.out)(Out::Ask { bot, text, key: key.clone(), files });
         self.refresh_shots();
         self.entry.set_text("");
         key

@@ -203,6 +203,29 @@ pub fn footer(act: Option<&Act>) -> String {
     format!("{enter} · Tab: next target · Ctrl+D: browser · Esc: close")
 }
 
+/// What Enter does with the typed text while an ask's answer shows. Only a bot's open question takes the text, as its
+/// answer (`question`: Some(whether it is a permission request)); everything else runs the selected row, so a message
+/// always starts a new thread, like the browser's top-bar Ask. `Nothing`: an empty field under a question.
+#[derive(Debug, PartialEq, Eq)]
+pub enum OnEnter {
+    Answer,
+    Refuse(&'static str),
+    Nothing,
+    Row,
+}
+
+pub fn on_enter(question: Option<bool>, text: &str, images: bool) -> OnEnter {
+    let empty = text.trim().is_empty() && !images;
+    match question {
+        _ if text.starts_with(['>', '/', '@']) => OnEnter::Row,
+        None => OnEnter::Row,
+        Some(_) if empty => OnEnter::Nothing,
+        Some(true) => OnEnter::Refuse("This is a permission request: Allow or Deny it in the browser (Ctrl+O)"),
+        Some(false) if images => OnEnter::Refuse("An answer to a question is text only: answer it, then send the images, or answer in the browser (Ctrl+O)"),
+        Some(false) => OnEnter::Answer,
+    }
+}
+
 /// A pasted image waiting in the spotlight, sent with the next Ask as an attachment (`POST /api/uploads`, then the
 /// message's `attachments`, like the web's pasted screenshots).
 #[derive(Clone, PartialEq, Eq)]
@@ -420,6 +443,17 @@ mod tests {
         assert_eq!(k.len(), 36);
         assert_eq!(k.matches('-').count(), 4);
         assert_ne!(k, new_key());
+    }
+
+    #[test]
+    fn only_an_open_question_takes_the_text() {
+        assert_eq!(on_enter(None, "again", false), OnEnter::Row);
+        assert_eq!(on_enter(None, "", true), OnEnter::Row);
+        assert_eq!(on_enter(Some(false), "yes", false), OnEnter::Answer);
+        assert_eq!(on_enter(Some(false), "> go", false), OnEnter::Row);
+        assert_eq!(on_enter(Some(false), "", false), OnEnter::Nothing);
+        assert!(matches!(on_enter(Some(false), "see", true), OnEnter::Refuse(_)));
+        assert!(matches!(on_enter(Some(true), "allow", false), OnEnter::Refuse(_)));
     }
 
     #[test]
