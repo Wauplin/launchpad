@@ -92,7 +92,7 @@ export function CommandField() {
   const workspaceId = scope.workspace.id;
   const bot = askRecipient(bots, askTarget(allBots, workspaceId), workspaceId, pageKey, ctx.botId, picks);
   const pick = (id: string) => setPicks((p) => pickRecipient(p, workspaceId, pageKey, ctx.botId, id));
-  // On the bot's own page, Ask talks in the chat it shows; to another bot, through the Ask panel.
+  // On the bot's own page, Ask's new thread opens in the chat it shows; to another bot, in the Ask panel.
   const own = !!bot && ctx.botId === bot.id;
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -111,16 +111,16 @@ export function CommandField() {
     if (reading) return;
     setBusy(true);
     try {
-      // On the bot's own page: the thread it shows; elsewhere a new thread.
+      // Every top-bar send starts a new thread, also on the bot's own page with a thread open: replies to the thread
+      // shown go through the chat's own message box.
       const shown = own && typeof search.thread === "string" ? search.thread : null;
-      const where = shown && shown !== "new" && !shown.includes(":") ? { thread: shown } : {};
       // Home stores the message and answers at once (`accept`): the chat shows it while the bot starts.
-      const sent = await runAction<BotSend>("bot.message", { id: bot.id }, { text: ctx.line ? `${t}\n\n(I am looking at ${ctx.line}.)` : t, attachments: files, ...where, accept: true });
+      const sent = await runAction<BotSend>("bot.message", { id: bot.id }, { text: ctx.line ? `${t}\n\n(I am looking at ${ctx.line}.)` : t, attachments: files, new_thread: true, accept: true });
       setText("");
       shots.clear();
       showAccepted(qc, sent);
       const thread = sent.thread;
-      // On the bot's own page, its chat is already there: it shows the message's thread.
+      // On the bot's own page, its chat is already there: it switches to the new thread.
       if (!own) panel.show(bot.id, thread);
       else if (thread && thread !== shown) void navigate({ to: "/bots/$id", params: { id: bot.id }, search: { thread } as never, replace: true });
     } catch (e) { toastError(e); } finally { setBusy(false); }

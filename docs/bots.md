@@ -97,7 +97,7 @@ A bot has several threads: parallel conversations about different things. Each t
 
 There is no default thread. In the app, a thread is a **chat** (see [Chats](#chats)). A bot's tile in Chats starts a new chat; a link to the bot without a thread (a Telegram notification) opens the chat you looked at last on this device, else the one whose session you saw last, else the most recent one. Home picks the thread of each message from where the message comes from:
 
-- Your messages on the bot's page and in the Ask panel go to the thread you look at. A bot's tile in Chats (and **New chat** in its settings) starts a new one with your next message. **Ask** in the top bar starts a new thread (on the bot's own page, it writes in the thread shown), and the Ask panel then shows it. Telegram writes in the bot's Telegram thread.
+- Your messages on the bot's page and in the Ask panel go to the thread you look at. A bot's tile in Chats (and **New chat** in its settings) starts a new one with your next message. **Ask** in the top bar always starts a new thread, also on the bot's own page with a thread open (the page then shows the new thread; reply to a thread with its own message box), and the Ask panel then shows it. Telegram writes in the bot's Telegram thread.
 - The Chrome extension's buttons on a GitHub pull request or issue go to that item's thread, so each item has its own conversation. A message about several items starts a new thread.
 - Each channel and DM has its own thread, each incoming hook too, and each agent that messages the bot. A bot that messages another bot from one of its threads brings it into that thread's conversation instead (see [Conversations of several bots](#conversations-of-several-bots)).
 - Each routine run starts a new thread.
