@@ -11,6 +11,9 @@
 # name package launchpad-desktop, architecture amd64 and the resolved version. Then `sudo apt-get install` installs it
 # (apt also installs GTK 4 and the other libraries it needs). Nothing else on the machine changes.
 #
+# Python is never used: GitHub's release JSON is read with jq when it works, else with the built-in reader (grep and
+# awk), each checked on a sample before anything is fetched.
+#
 # Usage: install.sh [--main | --release] [--dry-run] [--help]
 #   --main      the newest build of the main branch (the main-build prerelease; the default)
 #   --release   the newest release
@@ -56,29 +59,115 @@ os_field() {
   sed -n "s/^$1=//p" "$2" | head -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
 }
 
-# The assets of a release JSON as lines `name<TAB>browser_download_url<TAB>digest` (digest empty when GitHub gives
-# none). Assets with a control character in a field are left out. Exit 3 for a body that is not a release.
-list_assets() {
-  python3 -I -c '
-import json, sys
-try:
-    with open(sys.argv[1], encoding="utf-8") as f:
-        release = json.load(f)
-except (OSError, ValueError):
-    sys.exit(3)
-assets = release.get("assets") if isinstance(release, dict) else None
-if not isinstance(assets, list):
-    sys.exit(3)
-for a in assets:
-    if not isinstance(a, dict):
-        continue
-    fields = [a.get("name"), a.get("browser_download_url"), a.get("digest") or ""]
-    if not all(isinstance(v, str) for v in fields):
-        continue
-    if any(ord(c) < 32 or ord(c) == 127 for v in fields for c in v):
-        continue
-    print("\t".join(fields))
-' "$1" </dev/null
+# Readers of GitHub's release JSON (on stdin). Both print the assets as lines `name<TAB>browser_download_url<TAB>digest`
+# (digest empty when GitHub gives none) and leave out assets whose name or URL is not a string, or whose fields hold a
+# control character. Exit 3 for a body that is not a release (an object with an `assets` array). Neither needs Python.
+assets_jq() {
+  # --slurp: exactly one JSON value (an empty body or a second value is not a release).
+  jq -rs '
+    if length == 1 and (.[0] | type) == "object" and (.[0].assets | type) == "array" then
+      .[0].assets[] | objects | [.name, .browser_download_url, (.digest // "")]
+      | select(all(.[]; type == "string" and (explode | all(. >= 32 and . != 127))))
+      | join("\t")
+    else error("not a release") end' 2>/dev/null || return 3
+}
+
+# The built-in reader, for machines without a working jq: grep cuts the JSON into tokens (strings, punctuation,
+# literals), awk checks the grammar with a stack and keeps the three fields of each object of the top-level `assets`
+# array. Fields with an escape other than \" \\ \/ are left out like control characters (asset names and URLs never
+# need one); `digest` null or false reads as none, like jq's `//`.
+assets_builtin() {
+  LC_ALL=C grep -aoE '"([^"\\]|\\.)*"|[][{}:,]|[^][{}:,"[:space:]]+' | LC_ALL=C awk '
+    BEGIN {
+      depth = 0; want = "V"; seen = 0; failed = 0; BAD = sprintf("%c", 1)
+      for (i = 1; i < 32; i++) ctl = ctl sprintf("%c", i)
+      ctl = "[" ctl sprintf("%c", 127) "]"
+    }
+    function fail_() { failed = 1; exit }
+    function done_value() { want = (depth == 0) ? "END" : "E" }
+    function decode(t,    s, out, i, c) {
+      s = substr(t, 2, length(t) - 2)
+      if (s ~ ctl) return BAD
+      if (index(s, "\\") == 0) return s
+      out = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c == "\\") {
+          c = substr(s, ++i, 1)
+          if (c != "\"" && c != "\\" && c != "/") return BAD
+        }
+        out = out c
+      }
+      return out
+    }
+    function in_asset() { return depth == 3 && ctx[3] == "asset" }
+    function non_string(k) {
+      if (k == "\"name\"") sn = "bad"
+      else if (k == "\"browser_download_url\"") su = "bad"
+      else if (k == "\"digest\"") sd = "bad"
+    }
+    function set_field(k, t,    v, st) {
+      v = decode(t); st = (v == BAD) ? "bad" : "ok"
+      if (k == "\"name\"") { name = v; sn = st }
+      else if (k == "\"browser_download_url\"") { url = v; su = st }
+      else if (k == "\"digest\"") { digest = v; sd = st }
+    }
+    function open_(kind) {
+      if (want != "V" && want != "A") fail_()
+      if (in_asset()) non_string(key[3])
+      depth++; type[depth] = kind; ctx[depth] = ""; key[depth] = ""
+      if (depth == 1 && kind == "o") ctx[1] = "root"
+      else if (depth == 2 && kind == "a" && ctx[1] == "root" && key[1] == "\"assets\"") { ctx[2] = "assets"; seen = 1 }
+      else if (depth == 3 && kind == "o" && ctx[2] == "assets") { ctx[3] = "asset"; sn = su = sd = ""; digest = "" }
+      want = (kind == "o") ? "K" : "A"
+    }
+    $0 == "{" { open_("o"); next }
+    $0 == "[" { open_("a"); next }
+    $0 == "}" {
+      if (type[depth] != "o" || (want != "K" && want != "E")) fail_()
+      if (in_asset() && sn == "ok" && su == "ok" && sd != "bad") print name "\t" url "\t" (sd == "ok" ? digest : "")
+      depth--; done_value(); next
+    }
+    $0 == "]" {
+      if (type[depth] != "a" || (want != "A" && want != "E")) fail_()
+      depth--; done_value(); next
+    }
+    $0 == ":" { if (want != "C") fail_(); want = "V"; next }
+    $0 == "," { if (want != "E") fail_(); want = (type[depth] == "o") ? "N" : "V"; next }
+    /^"/ {
+      if (want == "K" || want == "N") { key[depth] = $0; want = "C"; next }
+      if (want != "V" && want != "A") fail_()
+      if (in_asset()) set_field(key[3], $0)
+      done_value(); next
+    }
+    {
+      if (want != "V" && want != "A") fail_()
+      if ($0 !~ /^(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?|true|false|null)$/) fail_()
+      if (in_asset()) {
+        if (key[3] == "\"digest\"" && ($0 == "null" || $0 == "false")) { digest = ""; sd = "" }
+        else non_string(key[3])
+      }
+      done_value()
+    }
+    END { if (failed || want != "END" || !seen) exit 3 }'
+}
+
+# The reader this machine can use: jq when it works, else the built-in one, each checked on a sample first (so a
+# broken tool is reported as such before anything is fetched, never as a bad answer from GitHub). Prints its name.
+pick_reader() {
+  local sample expected
+  sample='{"name":"x","body":"a \"quoted\" line\nwith café","n":[1,-2.5e3,true,null,{}],"assets":[
+    {"name":"a_1.0_amd64.deb","browser_download_url":"https:\/\/example.invalid\/a.deb","digest":"sha256:00","size":12,"uploader":{"name":"u"}},
+    {"name":"a.sha256","browser_download_url":"https://example.invalid/a.sha256","digest":null},
+    {"name":7,"browser_download_url":"https://example.invalid/b"}],"tail":[]}'
+  expected=$'a_1.0_amd64.deb\thttps://example.invalid/a.deb\tsha256:00\na.sha256\thttps://example.invalid/a.sha256\t'
+  if command -v jq >/dev/null && [ "$(assets_jq <<<"$sample")" = "$expected" ]; then
+    echo jq
+  elif command -v grep >/dev/null && command -v awk >/dev/null && [ "$(assets_builtin <<<"$sample")" = "$expected" ]; then
+    echo builtin
+  else
+    return 1
+  fi
 }
 
 # 64 lowercase hex digits, or nothing.
@@ -121,7 +210,7 @@ main() {
 Set LAUNCHPAD_DESKTOP_SKIP_OS_CHECK=1 to try anyway (unsupported)."
   fi
   local tool
-  for tool in curl sha256sum python3 dpkg dpkg-deb dpkg-query apt-get; do
+  for tool in curl sha256sum dpkg dpkg-deb dpkg-query apt-get; do
     command -v "$tool" >/dev/null || fail "This installer needs $tool, which is missing. Install it first, for example: sudo apt install $tool"
   done
   local sudo=()
@@ -132,7 +221,12 @@ Set LAUNCHPAD_DESKTOP_SKIP_OS_CHECK=1 to try anyway (unsupported)."
       fail "Installing a package needs sudo, which is missing. Run this as root, or install sudo first."
     fi
   fi
-  ok "curl, sha256sum, python3, dpkg-deb, apt-get${sudo[*]:+, sudo}"
+  ok "curl, sha256sum, dpkg-deb, apt-get${sudo[*]:+, sudo}"
+  # GitHub's release data is JSON: read it with jq when it works, else with the built-in reader (grep and awk).
+  # Python is never used (a broken python3 must not stop the install or be mistaken for a bad answer from GitHub).
+  local reader
+  reader=$(pick_reader) || fail "This installer reads GitHub's release data with jq, or with grep and awk, and none of them works here. Install jq first (sudo apt install jq), or check grep and awk."
+  if [ "$reader" = jq ]; then ok "jq to read GitHub's release data"; else ok "built-in reader (grep, awk) for GitHub's release data"; fi
 
   # The API base and where downloads may come from. A fake release server (tests) may use http, and only its own
   # URLs are accepted then; it never leads to an install (--dry-run only), so a forgotten variable installs nothing.
@@ -172,10 +266,13 @@ Set LAUNCHPAD_DESKTOP_SKIP_OS_CHECK=1 to try anyway (unsupported)."
     403 | 429) fail "GitHub refused the request (HTTP $status), probably its rate limit for anonymous requests. Try again later, or download the package by hand from $page" ;;
     *) fail "GitHub answered HTTP $status for $label. Try again later, or see $page" ;;
   esac
-  local assets
-  if ! assets=$(list_assets "$dir/release.json"); then
-    fail "GitHub's answer for $label is not a release. Try again later, or see $page"
-  fi
+  local assets rc=0
+  assets=$("assets_$reader" <"$dir/release.json") || rc=$?
+  case "$rc" in
+    0) ;;
+    3) fail "GitHub's answer for $label is not a release. Try again later, or see $page" ;;
+    *) fail "Reading GitHub's answer with the $reader reader failed (exit $rc). Not a GitHub problem: see $page to download the package by hand." ;;
+  esac
 
   # Like update::select: launchpad-desktop_<version>_amd64.deb with a strict version (letters, digits, . ~ +, starting
   # with a digit, as Debian versions do), only with its <name>.sha256 asset, the newest by Debian version order.

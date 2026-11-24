@@ -19,6 +19,7 @@ This installs the newest build of `main` (the `main-build` prerelease). For the 
 The script:
 
 - Checks that the machine runs Ubuntu 26.04 on amd64, and stops with a clear error otherwise.
+- Does not use Python. It reads GitHub's release data with `jq` when `jq` works, else with a small built-in reader that needs only `grep` and `awk` (part of every Ubuntu). It tests the reader before it downloads anything, so a broken `python3` or `jq` does not matter. If neither reader works, it says so and stops.
 - Finds the newest `launchpad-desktop_<version>_amd64.deb` of `main-build` (or of the latest release) from GitHub's release data. It takes only a package that has its `.sha256` file.
 - Downloads it into a private temporary folder, which it removes when it ends.
 - Checks the file before it installs anything. Its SHA-256 must equal the digest GitHub gives for the asset and the published `.sha256` file. The package's own fields must say `launchpad-desktop`, `amd64` and the expected version.
