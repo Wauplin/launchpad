@@ -70,8 +70,12 @@ async fn main() -> anyhow::Result<()> {
         println!("resolve lp:bot/{} → {:?}", bot.id, launchpad_desktop::actions::resolve(&home, &format!("lp:bot/{}", bot.id)).await.map_err(|e| e.message));
         println!("resolve lp:session/nope → {:?}", launchpad_desktop::actions::resolve(&home, "lp:session/nope").await.map_err(|e| e.message));
         let key = launchpad_desktop::spot::new_key();
-        println!("ask {} → thread {:?}", bot.name(), launchpad_desktop::actions::ask(&home, &bot.id, "probe: hello", None, &key).await.map_err(|e| e.message));
-        println!("same key again (idempotent) → thread {:?}", launchpad_desktop::actions::ask(&home, &bot.id, "probe: hello", None, &key).await.map_err(|e| e.message));
+        println!("ask {} → thread {:?}", bot.name(), launchpad_desktop::actions::ask(&home, &bot.id, "probe: hello", None, &key, &[]).await.map_err(|e| e.message));
+        println!("same key again (idempotent) → thread {:?}", launchpad_desktop::actions::ask(&home, &bot.id, "probe: hello", None, &key, &[]).await.map_err(|e| e.message));
+        // A pasted image (a 1×1 PNG) with the next ask: uploaded first, then a new thread of its own.
+        let png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, b'I', b'H', b'D', b'R', 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1f, 0x15, 0xc4, 0x89, 0, 0, 0, 0x0d, b'I', b'D', b'A', b'T', 0x78, 0x9c, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0d, 0x0a, 0x2d, 0xb4, 0, 0, 0, 0, b'I', b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82];
+        let image = launchpad_desktop::spot::Pasted { name: "Pasted image.png".into(), mime: "image/png".into(), bytes: png };
+        println!("ask with an image → thread {:?} (a new one)", launchpad_desktop::actions::ask(&home, &bot.id, "probe: image", None, &launchpad_desktop::spot::new_key(), &[image]).await.map_err(|e| e.message));
         let sends: serde_json::Value = home.get(&format!("/api/bots/{}/sends", bot.id)).await?;
         println!("Home's receipts for the bot: {}", sends.as_array().map_or(0, |a| a.iter().filter(|s| s["id"] == key.as_str()).count()));
         let profile = launchpad_desktop::model::Profile { id: "probe".into(), name: "Probe".into(), harness: "claude".into() };

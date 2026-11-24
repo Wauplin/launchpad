@@ -60,6 +60,13 @@ pub struct Home {
     pub hf: Option<HfAuth>,
 }
 
+/// A request's body: JSON, or raw bytes of a type (an upload).
+#[derive(Clone, Copy)]
+enum Body<'a> {
+    Json(&'a serde_json::Value),
+    Raw { bytes: &'a [u8], mime: &'a str },
+}
+
 impl Home {
     pub fn new(http: reqwest::Client, link: HomeLink, device: String, hf: Option<HfAuth>) -> Home {
         Home { http, link, device, hf }
@@ -71,7 +78,7 @@ impl Home {
         self.link.kind == HomeKind::Space && crate::hf::space_origin(&self.link.origin)
     }
 
-    async fn send(&self, method: reqwest::Method, path: &str, body: Option<&serde_json::Value>, extra: &[(&str, String)]) -> Result<reqwest::Response, HomeError> {
+    async fn send(&self, method: reqwest::Method, path: &str, body: Option<Body<'_>>, extra: &[(&str, String)]) -> Result<reqwest::Response, HomeError> {
         let mut retried = false;
         loop {
             let mut req = self.http.request(method.clone(), format!("{}{path}", self.link.origin)).header(CLIENT_HEADER, client()).header(DEVICE_HEADER, &self.device);
@@ -86,8 +93,10 @@ impl Home {
                 })?;
                 req = req.bearer_auth(bearer);
             }
-            if let Some(body) = body {
-                req = req.json(body);
+            match body {
+                Some(Body::Json(v)) => req = req.json(v),
+                Some(Body::Raw { bytes, mime }) => req = req.header(reqwest::header::CONTENT_TYPE, mime).body(bytes.to_vec()),
+                None => {}
             }
             let response = req.send().await.map_err(network)?;
             let status = response.status().as_u16();
@@ -118,8 +127,16 @@ impl Home {
     /// A JSON write (`POST`, `PUT`); `key` becomes its `Idempotency-Key`, so a retry is done once on Home.
     pub async fn write(&self, method: reqwest::Method, path: &str, body: &serde_json::Value, key: Option<&str>) -> Result<serde_json::Value, HomeError> {
         let extra: Vec<(&str, String)> = key.map(|k| vec![("Idempotency-Key", k.to_string())]).unwrap_or_default();
-        let response = self.send(method, path, Some(body), &extra).await?;
+        let response = self.send(method, path, Some(Body::Json(body)), &extra).await?;
         response.json().await.map_err(|e| HomeError { failure: Failure::Other, message: format!("Unexpected answer from Home: {e}"), status: 0 })
+    }
+
+    /// `POST /api/uploads`: stores a file on Home once (content-addressed, so a retry stores nothing new) and
+    /// answers its short reference (`upload:<mime>;<sha256>`), which a message's `attachments` then carry.
+    pub async fn upload(&self, bytes: &[u8], mime: &str) -> Result<String, HomeError> {
+        let response = self.send(reqwest::Method::POST, "/api/uploads", Some(Body::Raw { bytes, mime }), &[]).await?;
+        let answer: serde_json::Value = response.json().await.map_err(|e| HomeError { failure: Failure::Other, message: format!("Unexpected answer from Home: {e}"), status: 0 })?;
+        answer.get("data_url").and_then(|v| v.as_str()).map(str::to_string).ok_or_else(|| HomeError { failure: Failure::Other, message: "Home did not store the attachment".into(), status: 0 })
     }
 
     pub async fn delete(&self, path: &str) -> Result<(), HomeError> {

@@ -186,7 +186,9 @@ Text of more than 4,000 characters offers no Ask: continue in the browser with C
 | Ctrl+N | Start a new ask. |
 | Ctrl+W | Next workspace. |
 | Esc | Hide; the text is kept for 15 minutes. Clicking elsewhere does the same. |
-| Shift+Esc | Hide and discard the text. |
+| Shift+Esc | Hide and discard the text and the pasted images. |
+| Ctrl+V | Paste. A screenshot (an image with no text in the clipboard) is attached to the ask; any text pastes as text. |
+| Backspace in an empty field | Remove the last pasted image. |
 
 Every control has a keyboard mnemonic, and the footer is a status line that screen readers announce.
 
@@ -194,6 +196,7 @@ Every control has a keyboard mnemonic, and the footer is a status line that scre
 
 - **Target**: the bot set as **Default Ask target** in the companion's settings, while it exists. Otherwise the web app's rule: the workspace's oldest admin bot, else its oldest bot. Tab cycles through the other bots (alphabetical), then New agent. `@bot` at the start of the text picks a bot for that ask.
 - **Sending**: each ask starts a new thread of the bot, sent once even after a retry.
+- **Screenshots**: paste an image (Ctrl+V, Shift+Insert or the field's Paste menu) to attach it to the ask. Each one shows as a thumbnail with a remove button; Enter sends them with the text, or alone as an ask of the current bot. They upload to Home like pasted images in the browser (5 MB each, 20 MB in all; large PNGs become a JPEG of at most 2048 px), and the bot gets them as the message's attachments. A clipboard that also holds text (spreadsheet cells, a web page selection) pastes its text. Images go with an ask or a reply only: the quick launch, the browser hand-off and an answer to a bot's question refuse them until you remove them. Esc keeps them with the text for 15 minutes.
 - **Answer**: the bot's answer shows in the Spotlight as it arrives, up to 1,200 characters. Ctrl+O, or Ctrl+Enter when you send, opens the whole thread in the browser.
 - **Replies**: text you type under an answer goes to the same thread. When the bot asks a question, your text answers it. An approval request is never answered from the Spotlight: Allow or Deny it in the browser.
 - **Closed Spotlight**: when an answer or a question arrives while the Spotlight is hidden, one notification tells you, and a click opens the thread.
@@ -287,7 +290,7 @@ The companion was built and tested on a machine without a desktop. These parts s
 - **Notifications and dock**: banners show under the app, **Open** works, a new one replaces the old one of the same agent; the dock badge shows and hides.
 - **Keyring**: storing and deleting secrets in GNOME Keyring, the unlock prompt, and the message without a keyring.
 - **Shortcut**: GNOME's consent dialog shows once; Ctrl+Alt+Space opens the Spotlight with keyboard focus; **Change shortcut…**; the custom shortcut replaces the portal's and **Remove** brings it back.
-- **Spotlight**: placement, light and dark look, hiding on focus loss, keys, 200% text, screen reader names; answers stream, typed answers reach a bot's question, approvals are refused.
+- **Spotlight**: placement, light and dark look, hiding on focus loss, keys, 200% text, screen reader names; answers stream, typed answers reach a bot's question, approvals are refused; pasting a GNOME screenshot attaches it and shows its thumbnail, pasting text still pastes text.
 - **Hand-offs**: the default browser (the Firefox snap) opens the right page; the composer shows the draft; the clipboard keeps the text.
 - **Linking**: Sign in with Hugging Face with a real OAuth app; a real Space's gateway creates the device, lists and revokes it; a sleeping Space shows Home is starting.
 - **Life cycle**: one instance at a time, start at login, suspend and resume while offline.

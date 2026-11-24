@@ -5,15 +5,27 @@ use serde_json::{Value, json};
 
 use crate::home::{Home, HomeError};
 use crate::links::Links;
+use crate::spot::Pasted;
 
-/// `POST /api/bots/{id}/message`: a new thread (`thread` None) or a reply in one, accepted at once (`accept`);
-/// `key` (the Idempotency-Key) becomes the new session's ID, or the message's `client_id`. Answers the receipt's
-/// thread.
-pub async fn ask(home: &Home, bot: &str, text: &str, thread: Option<&str>, key: &str) -> Result<String, HomeError> {
-    let body = match thread {
-        None => json!({"text": text, "new_thread": true, "accept": true}),
-        Some(t) => json!({"text": text, "thread": t, "accept": true}),
-    };
+/// The body of `POST /api/bots/{id}/message`: a new thread (`thread` None, `new_thread`, like the web's top-bar Ask)
+/// or a reply in one, accepted at once (`accept`), with the uploaded attachments (name, `upload:` reference).
+pub fn ask_body(text: &str, thread: Option<&str>, attachments: &[(String, String)]) -> Value {
+    let attachments: Vec<Value> = attachments.iter().map(|(name, data_url)| json!({"name": name, "data_url": data_url})).collect();
+    match thread {
+        None => json!({"text": text, "attachments": attachments, "new_thread": true, "accept": true}),
+        Some(t) => json!({"text": text, "attachments": attachments, "thread": t, "accept": true}),
+    }
+}
+
+/// Sends an ask: uploads its pasted images first (`POST /api/uploads`, the web's path), then the message (see
+/// `ask_body`); `key` (the Idempotency-Key) becomes the new session's ID, or the message's `client_id`. Answers the
+/// receipt's thread.
+pub async fn ask(home: &Home, bot: &str, text: &str, thread: Option<&str>, key: &str, files: &[Pasted]) -> Result<String, HomeError> {
+    let mut attachments = Vec::with_capacity(files.len());
+    for f in files {
+        attachments.push((f.name.clone(), home.upload(&f.bytes, &f.mime).await?));
+    }
+    let body = ask_body(text, thread, &attachments);
     let receipt = home.write(reqwest::Method::POST, &format!("/api/bots/{bot}/message"), &body, Some(key)).await?;
     Ok(receipt.get("thread").and_then(Value::as_str).unwrap_or_default().to_string())
 }
@@ -116,6 +128,17 @@ pub async fn resolve(home: &Home, text: &str) -> Result<String, HomeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ask_body_new_thread_or_reply_with_attachments() {
+        let files = vec![("Pasted image.png".to_string(), "upload:image/png;ab".to_string())];
+        let new = ask_body("", None, &files);
+        assert_eq!(new["new_thread"], true);
+        assert!(new.get("thread").is_none());
+        assert_eq!(new["attachments"], json!([{"name": "Pasted image.png", "data_url": "upload:image/png;ab"}]));
+        let reply = ask_body("more", Some("t1"), &[]);
+        assert_eq!((reply["thread"].as_str(), reply.get("new_thread"), reply["attachments"].as_array().map(Vec::len)), (Some("t1"), None, Some(0)));
+    }
 
     #[test]
     fn draft_keeps_the_browsers_text_and_revision() {

@@ -53,7 +53,8 @@ pub enum Cmd {
     /// The spotlight's `/workspace` and Ctrl+W.
     NextWorkspace,
     /// Ask a bot: a new thread, or a reply in `thread` (whose session is `session`). `key` is the Idempotency-Key.
-    Ask { bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String },
+    /// `files`: pasted images, uploaded before the message.
+    Ask { bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String, files: Vec<spot::Pasted> },
     /// Typed text answering the open question `request` of `session` (`POST /api/sessions/{id}/answer`).
     Answer { session: String, request: String, count: usize, text: String },
     /// Quick launch (`POST /api/sessions`); `key` is the Idempotency-Key.
@@ -375,8 +376,8 @@ impl Engine {
                 }
                 false
             }
-            Cmd::Ask { bot, text, thread, session, key } => {
-                self.ask(bot, text, thread, session, key);
+            Cmd::Ask { bot, text, thread, session, key, files } => {
+                self.ask(bot, text, thread, session, key, files);
                 false
             }
             Cmd::AskSent { session, thread } => {
@@ -546,7 +547,7 @@ impl Engine {
 
     /// Registers the ask before sending it, so no event of its session is missed: a new thread's session takes the
     /// message's key as its ID; a reply continues the thread's session.
-    fn ask(&mut self, bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String) {
+    fn ask(&mut self, bot: BotInfo, text: String, thread: Option<String>, session: Option<String>, key: String, files: Vec<spot::Pasted>) {
         let session = session.unwrap_or_else(|| key.clone());
         let watch = self.watches.entry(session.clone()).or_insert_with(|| Watch { key: key.clone(), bot: bot.clone(), thread: thread.clone(), events: Vec::new(), last_seq: 0, error: None });
         watch.key = key.clone();
@@ -565,7 +566,7 @@ impl Engine {
             return;
         };
         tokio::spawn(async move {
-            let thread = actions::ask(&home, &bot_id, &text, thread.as_deref(), &key).await.map_err(|e| e.message);
+            let thread = actions::ask(&home, &bot_id, &text, thread.as_deref(), &key, &files).await.map_err(|e| e.message);
             let _ = tx.send(Cmd::AskSent { session, thread });
         });
     }

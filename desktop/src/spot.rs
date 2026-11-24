@@ -203,6 +203,48 @@ pub fn footer(act: Option<&Act>) -> String {
     format!("{enter} · Tab: next target · Ctrl+D: browser · Esc: close")
 }
 
+/// A pasted image waiting in the spotlight, sent with the next Ask as an attachment (`POST /api/uploads`, then the
+/// message's `attachments`, like the web's pasted screenshots).
+#[derive(Clone, PartialEq, Eq)]
+pub struct Pasted {
+    pub name: String,
+    pub mime: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Never the bytes (a debug log line stays short).
+impl std::fmt::Debug for Pasted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Pasted({}, {}, {} bytes)", self.name, self.mime, self.bytes.len())
+    }
+}
+
+/// Home's limits for attachments (the web's `ATTACH_LIMITS`): 5 MB each, 20 MB together.
+pub const ATTACH_EACH: usize = 5 * 1024 * 1024;
+pub const ATTACH_TOTAL: usize = 20 * 1024 * 1024;
+
+/// Whether a paste with these clipboard formats (MIME types) attaches an image instead of pasting text: an image
+/// format and no plain text, so a screenshot attaches and anything that also offers text (a spreadsheet's cells, a
+/// web page's selection) pastes its text as before.
+pub fn pastes_image<S: AsRef<str>>(mimes: &[S]) -> bool {
+    let text = mimes.iter().any(|m| {
+        let m = m.as_ref();
+        m.starts_with("text/plain") || matches!(m, "UTF8_STRING" | "STRING" | "TEXT" | "COMPOUND_TEXT")
+    });
+    !text && mimes.iter().any(|m| m.as_ref().starts_with("image/"))
+}
+
+/// Why one more attachment of `size` bytes cannot join those already pasted (`sizes`), or None.
+pub fn attach_refusal(sizes: &[usize], size: usize) -> Option<&'static str> {
+    if size > ATTACH_EACH {
+        Some("This image is larger than 5 MB: attach it in the browser")
+    } else if sizes.iter().sum::<usize>() + size > ATTACH_TOTAL {
+        Some("Attachments must total 20 MB or less")
+    } else {
+        None
+    }
+}
+
 /// Unsent text survives Esc for 15 minutes (Shift+Esc discards it).
 pub const KEEP_MS: i64 = 15 * 60_000;
 
@@ -220,6 +262,11 @@ impl Kept {
 
     pub fn discard(&mut self) {
         self.text.clear();
+    }
+
+    /// Whether what was kept at the last Esc still shows at the next open.
+    pub fn fresh(&self, now: i64) -> bool {
+        now - self.hidden_at <= KEEP_MS
     }
 
     /// The text to show at the next open.
@@ -373,6 +420,19 @@ mod tests {
         assert_eq!(k.len(), 36);
         assert_eq!(k.matches('-').count(), 4);
         assert_ne!(k, new_key());
+    }
+
+    #[test]
+    fn image_paste_only_without_plain_text() {
+        assert!(pastes_image(&["image/png"]));
+        assert!(pastes_image(&["image/png", "text/html", "image/jpeg"]));
+        assert!(!pastes_image(&["text/plain;charset=utf-8", "image/png"]));
+        assert!(!pastes_image(&["UTF8_STRING", "image/bmp"]));
+        assert!(!pastes_image(&["text/plain"]));
+        assert!(!pastes_image::<&str>(&[]));
+        assert_eq!(attach_refusal(&[], ATTACH_EACH), None);
+        assert!(attach_refusal(&[], ATTACH_EACH + 1).is_some());
+        assert!(attach_refusal(&[ATTACH_EACH; 4], 1).is_some());
     }
 
     #[test]
