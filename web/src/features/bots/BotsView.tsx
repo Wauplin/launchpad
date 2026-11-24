@@ -25,6 +25,7 @@ import { useChannelName } from "@/lib/channels";
 import type { ConnectionsOverview } from "@/features/settings/ConnectionsView";
 import { useTelegram } from "@/features/settings/TelegramSettings";
 import { BotAvatar } from "@/components/BotAvatar";
+import { useHarnessName } from "@/components/HarnessMark";
 import { BotIdentity } from "./BotIdentity";
 import type { Bot } from "@/gen/Bot";
 import type { BotSettings } from "@/gen/BotSettings";
@@ -244,6 +245,7 @@ function BotPageOf({ id }: { id: string }) {
   const where = useRunnerTag(current?.runner_id);
   const [step, setStep] = useState<string | null>(null);
   const editor = useTitleEditor(id, threadId);
+  const run = useRunLabel(bot ?? null, current);
   if (bots.isLoading) return <Loading what="the bot" />;
   if (bots.error) return <ErrorState error={bots.error} onRetry={() => void bots.refetch()} />;
   if (!bot) return <div className="flex h-full flex-col"><PageHeader title="Chat" /><Empty fill icon="spark" action={<Link to="/chats" className="btn btn-sm">All chats</Link>}>This bot no longer exists.</Empty></div>;
@@ -271,7 +273,7 @@ function BotPageOf({ id }: { id: string }) {
     intro={<p className="m-0 text-[13px] text-ink-2">{threadId !== NEW_THREAD ? "This chat has no message yet." : rows.length ? `Send ${bot.settings.name} the first message of a new chat: it runs next to its other chats.` : `Send ${bot.settings.name} its first task.`}</p>} />;
   if (phone) {
     return <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
-      <PhoneBar title={<span className="grid min-w-0"><span className="truncate">{title}</span><span className="truncate text-[12px] font-normal text-ink-3">{participants.map((b) => b.settings.name).join(", ")} · {statusLine}</span></span>} onBack={() => phoneBack("/chats")} backLabel="All chats"
+      <PhoneBar title={<span className="grid min-w-0"><span className="truncate">{title}</span><span className="truncate text-[12px] font-normal text-ink-3">{participants.map((b) => b.settings.name).join(", ")} · {statusLine}{run && <span title={run}> · {run}</span>}</span></span>} onBack={() => phoneBack("/chats")} backLabel="All chats"
         end={<>{editable && pinTarget && <PinStar pin={pinTarget} />}{archiveThread}<IconButton icon="gear" label={`Settings of ${bot.settings.name}`} data-tour="chat.settings" onClick={() => void navigate({ to: "/bots/$id/settings", params: { id } })} />
           {editable && <MoreMenu label="More actions for this chat">{(close) => <>
             <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" detail={title} onClick={() => { close(); editor.setEditing(true); }} />
@@ -287,13 +289,27 @@ function BotPageOf({ id }: { id: string }) {
       <PageHeader title={editable
           ? <ChatTitle bot={id} thread={shownThread!.id} pin={pinTarget} title={title} mark={routine && <RoutineMark routine={routine} />} editor={editor} />
           : <span className="flex min-w-0 items-center gap-1.5">{routine && <RoutineMark routine={routine} />}<span className="truncate" title={title}>{title}</span></span>}
-        meta={<><Participants bots={participants} /><span aria-hidden>·</span>{statusLine}</>}
+        meta={<><Participants bots={participants} /><span aria-hidden>·</span>{statusLine}{run && <><span aria-hidden>·</span><span className="min-w-0 truncate" title="Harness, model and effort of this chat's session">{run}</span></>}</>}
         actions={<span className="flex items-center gap-1" data-tour="bots.threads">
           {editable && openInAgents && <button type="button" className="btn btn-sm flex-none" title="Its session's trace, terminal and files" onClick={openInAgents}><Icon name="agents" size={12} />Open in Agents</button>}
           {archiveThread}<IconButton icon="x" label="Close the chat" onClick={closeChat} /></span>} />
       <div className="flex min-h-0 flex-1 flex-col">{chatView}</div>
     </div>
   );
+}
+
+/** The harness, model and effort the chat runs on ("Claude · opus · high"): its session's values, else the bot's
+ * settings, then its profile's defaults, then the harness's defaults (as Summary → Run shows them). */
+function useRunLabel(bot: Bot | null, current: Session | null): string | null {
+  const profiles = useProfiles();
+  const profile = (current ? profiles.find((p) => p.id === current.launch_spec.profile) : null) ?? (bot ? botProfile(bot, profiles) : null);
+  const harness = current?.harness ?? profile?.harness ?? null;
+  const defaults = useHarnessDefaults(profile?.models_url ? null : harness).data;
+  const harnessName = useHarnessName();
+  if (!harness) return null;
+  const model = current ? current.model ?? profile?.model ?? defaults?.model : bot?.settings.model ?? profile?.model ?? defaults?.model;
+  const effort = profile?.models_url ? null : current?.effort ?? profile?.effort ?? defaults?.effort;
+  return [harnessName(harness), model, effort].filter(Boolean).join(" · ");
 }
 
 /** The header's status line, in words: what the chat does now (its bots in a conversation of several, most urgent
