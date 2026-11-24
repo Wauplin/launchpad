@@ -29,3 +29,4 @@
 - [Foundations spikes](foundations-spikes.md): harness logins through a proxy and conversations moved between runners, checked for the Home and runners plan.
 - [Home in a Hugging Face Space](../deploy/hf-home/README.md): deploy, setup page, updates and the runner installer.
 - [AGENTS.md](../AGENTS.md): rules for coding agents working on this repository.
+- [Design invariants](invariants/README.md): the rules each area must keep, one page per area.

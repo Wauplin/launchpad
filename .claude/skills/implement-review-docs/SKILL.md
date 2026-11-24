@@ -24,7 +24,7 @@ impl 1 → review 1 → impl 2 → review 2 → impl 3 → review 3
 ## Before step 1
 
 1. Make a run folder: `/tmp/lp-steps/<short-name>/`. Put the plan there as `plan.md` (or link to it) and write `common.md` from the template below. Fill in the worktree, the branch and the owner's answers.
-2. Read AGENTS.md, then only the parts of the plan you need to split it into steps. A step should fit in one implementer context: about 15 items or 3 crates at most. Split a bigger step into sub-steps (6.1, 6.2, …), each with its own implementer.
+2. Read AGENTS.md and the `docs/invariants/` pages of the areas the plan touches, then only the parts of the plan you need to split it into steps. A step should fit in one implementer context: about 15 items or 3 crates at most. Split a bigger step into sub-steps (6.1, 6.2, …), each with its own implementer.
 3. For each step, note the files and functions the implementer will need. File pointers save many exploration calls.
 4. Ask the owner now about open decisions, all in one question. Agents never ask the owner: they write the question at the top of their report and skip that item.
 
@@ -61,7 +61,7 @@ All agents commit in the same worktree, and two of them can run at the same time
 - Commit only your own files: `git commit -m "<message>" -- <path>...`. Never `git add -A`, `git add .` or `git commit -a`.
 - Never use `git stash`, `git reset`, `git checkout -- <path>`, `git restore`, `git rebase` or `git clean`.
 - If Git says `index.lock` exists, wait two seconds and try again. Never delete the lock file.
-- The docs agent edits only `README.md` and `docs/`. Implementers and reviewers own everything else, including AGENTS.md (rules), tour chapters and demo fixtures.
+- The docs agent edits only `README.md` and `docs/`, except `docs/invariants/`. Implementers and reviewers own everything else, including AGENTS.md and `docs/invariants/` (rules), tour chapters and demo fixtures.
 - The docs agent reads the step's code with `git show` and `git diff base_N..end_N`. The working tree may already hold the next step's changes.
 - The docs agent does not build or take screenshots: `web/dist` belongs to the implementer that runs at the same time. It uses the reviewer's screenshots.
 
@@ -74,14 +74,14 @@ Repository (your working directory): <worktree> on branch `<branch>`. Commit the
 
 ## Sources
 
-- AGENTS.md (= CLAUDE.md) is the law; it wins over the plan. Read it fully first. Read README.md and docs/architecture.md where your step touches them.
+- AGENTS.md (CLAUDE.md imports it) and the `docs/invariants/` pages are the law; they win over the plan. Read AGENTS.md fully first, then the invariants page of each area your step touches (index: docs/invariants/README.md). Read README.md and docs/architecture.md where your step touches them.
 - The plan: /tmp/lp-steps/<name>/plan.md. The owner's answers (final, never ask again): <answers or file>.
 - Earlier reports: /tmp/lp-steps/<name>/step<N>-impl.md, -review.md, -docs.md.
 
 ## Rules
 
 - Follow AGENTS.md: safety rules, crate layering, the action list, the decision list (Today), no harness branches, UI rules, demo mode and tour chapters.
-- When the step changes a rule, rewrite that rule in AGENTS.md in the same step (implementer or reviewer).
+- When the step changes a rule, rewrite that rule in its `docs/invariants/` page in the same step (implementer or reviewer). AGENTS.md stays short: change it only for a cross-cutting rule, in one line.
 - Never stop or restart the production daemon (port 7317) or use its data. Use the dev daemon (port 7318) or scratch daemons. Clean up every terminal, test routine, schedule, worktree, scratch daemon, browser and server you start.
 - Builds: Bash `timeout: 600000` for cargo, Clippy, `cargo test` and `pnpm build`; no background builds polled with sleep loops. `cargo check --all-targets` while working, from the repository root, never `-p`.
 - Screenshots: `node web/scripts/shots.mjs --views 100,120,150,phone --out /tmp/lp-steps/<name>/shots/step<N> <pages>` (add `--demo` for demo mode). Never write your own screenshot script.
@@ -112,7 +112,7 @@ Commit as you go. Before your last commit, run Clippy and `cargo test` (if Rust 
 ```
 You are the reviewer of step <N> (<title>) of <plan>. First read /tmp/lp-steps/<name>/common.md and follow it. Then read /tmp/lp-steps/<name>/step<N>-impl.md.
 
-Review the step's code: `git log <base_N>..HEAD -- . ':!README.md' ':!docs'` (the docs agent of the previous step may commit prose at the same time; ignore it). Check it against the plan, the owner's answers and AGENTS.md: safety rules, crate layering, the action list, the decision list, no harness branches, UI rules, demo and tour. Check the "Done when" yourself. Fix what you find and commit.
+Review the step's code: `git log <base_N>..HEAD -- . ':!README.md' ':(glob,exclude)docs/*.md' ':!docs/images'` (this keeps `docs/invariants/`, which implementers own; the docs agent of the previous step may commit prose at the same time; ignore it). Check it against the plan, the owner's answers and AGENTS.md: safety rules, crate layering, the action list, the decision list, no harness branches, UI rules, demo and tour. Check the "Done when" yourself. Fix what you find and commit.
 
 Run the CI set once at the end: `cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings`, `cargo test`, `(cd web && pnpm typecheck)`, `(cd web && pnpm lint:hooks)` and the matching `pnpm test:<name>`. For UI changes, take the screenshots the docs agent will use: `node web/scripts/shots.mjs --views 100,120,150,phone --out /tmp/lp-steps/<name>/shots/step<N> <pages>`, in demo mode and with real data. Write your report to /tmp/lp-steps/<name>/step<N>-review.md.
 ```

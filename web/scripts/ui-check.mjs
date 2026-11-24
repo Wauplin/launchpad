@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Counts off-scale UI classes in web/src, so drift shows in review (CLAUDE.md, UI rules: Sizes and Dates).
+// Counts off-scale UI classes in web/src, so drift shows in review (docs/invariants/ui.md: Sizes and Dates).
 //
 //   node web/scripts/ui-check.mjs [--summary]        (or: cd web && pnpm ui-check)
 //

@@ -71,7 +71,7 @@
   --color-id-red: #b0191e;
   --color-id-red-soft: #fbe4e4;
 
-  /* Sizes (CLAUDE.md, UI rules): text only 11/12/13/15/18 px as text-[Npx] (Tailwind's text-xs… are removed here, so
+  /* Sizes (docs/invariants/ui.md): text only 11/12/13/15/18 px as text-[Npx] (Tailwind's text-xs… are removed here, so
      they do nothing; `pnpm ui-check` lists them), corners rounded-control (6 px: buttons, fields, menu items) and
      rounded-card (10 px: cards, panels, dialogs), page bodies max-w-page and reading columns max-w-text. */
   --text-*: initial;
