@@ -14,6 +14,8 @@ import { request, type BotBrief } from "../../shared/messages";
 import { findAnchor, findAnchors, findLine, hashPaths, pathOfHash, type Params } from "./anchors";
 import { fillPart, NeedsChoice, partState, watchShown } from "./insert";
 import { agentPath, elapsed, open, running, statusText, suggestionPath, workspaceBots } from "./item";
+import { markdown } from "./markdown";
+import { suggestionRenderer } from "./suggestionDiff";
 import { stepOfSession, watch } from "./live";
 import type { Page } from "./page";
 import { button, h, logo, more, mount, popover, unmount, type MenuEntry } from "./widgets";
@@ -350,7 +352,7 @@ function ghost(root: ShadowRoot, page: FilesPage, ctx: ExtContext, s: ExtSuggest
   const where = l.start_line ? `Lines ${l.start_line}–${l.line}` : `Line ${l.line}`;
   const head = h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: s.bot ?? "An agent" }), h("span", { class: "lp-muted lp-grow", text: `suggested line comment · ${where}` }));
   if (state) head.append(h("span", { class: "lp-tag lp-ok", text: state }));
-  const box = h("div", { class: "lp-ghost" }, head, h("div", { class: "lp-answer", text: l.body }));
+  const box = h("div", { class: "lp-ghost" }, head, h("div", { class: "lp-answer lp-answer-md" }, markdown(l.body, { here: { repo: page.repo, number: page.number }, suggestion: suggestionRenderer({ ...l, repo: page.repo, number: page.number, head: s.head }) })));
   const actions = h("div", { class: "lp-actions" });
   const params: Params = { repo: page.repo, number: page.number, path: l.path, side: l.side as Side, line: l.line };
   const add = () => {

@@ -13,6 +13,8 @@ export type MdOptions = {
   noteLabel?: (note: NoteRef) => string | null;
   /** A plain click on a note link: true when it was handled on the page (no navigation). */
   onNote?: (note: NoteRef) => boolean;
+  /** A ```suggestion block of a line comment (its lines): the suggested change as a diff (`suggestionDiff.ts`). */
+  suggestion?: ((body: string[]) => HTMLElement) | null;
 };
 
 /** A link to a reference: GitHub's links open in this tab like GitHub's own, others in a new one. */
@@ -73,7 +75,8 @@ export function markdown(md: string, o: MdOptions = {}): HTMLElement {
       i++;
       while (i < lines.length && !lines[i]!.trim().startsWith(fence[1]!)) body.push(lines[i++]!);
       i++;
-      root.append(h("pre", {}, h("code", { text: body.join("\n") })));
+      if (o.suggestion && line.trim().slice(fence[1]!.length).trim() === "suggestion") root.append(o.suggestion(body));
+      else root.append(h("pre", {}, h("code", { text: body.join("\n") })));
       continue;
     }
     if (!line.trim()) { flush(); i++; continue; }

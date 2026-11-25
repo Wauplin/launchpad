@@ -200,6 +200,16 @@ const STYLE = `
 .lp-md pre code { padding: 0; background: none; white-space: pre; }
 .lp-md blockquote { padding: 0 10px; border-left: 3px solid var(--borderColor-default, #d1d9e0); color: var(--fgColor-muted, #59636e); }
 .lp-md hr { border: 0; height: 1px; background: var(--borderColor-muted, #d1d9e0b3); margin: 10px 0; }
+.lp-answer.lp-answer-md { white-space: normal; }
+.lp-diff { margin: 0 0 8px; border: 1px solid var(--borderColor-default, #d1d9e0); border-radius: 6px; overflow: hidden; font: 12px/20px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bgColor-default, #ffffff); }
+.lp-diff-head { padding: 4px 10px; font: 12px/18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fgColor-muted, #59636e); background: var(--bgColor-muted, #f6f8fa); border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+.lp-diff-row { display: flex; color: var(--fgColor-default, #1f2328); }
+.lp-diff-sign { flex: none; width: 22px; text-align: center; user-select: none; color: var(--fgColor-muted, #59636e); }
+.lp-diff-text { flex: 1; min-width: 0; padding-right: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lp-diff-del { background: var(--diffBlob-deletionLine-bgColor, #ffebe9); }
+.lp-diff-add { background: var(--diffBlob-additionLine-bgColor, #dafbe1); }
+.lp-diff-del .lp-diff-word { background: var(--diffBlob-deletionWord-bgColor, #ff818266); border-radius: 2px; }
+.lp-diff-add .lp-diff-word { background: var(--diffBlob-additionWord-bgColor, #abf2bc); border-radius: 2px; }
 .lp-md a { color: var(--fgColor-accent, #0969da); text-decoration: none; }
 .lp-md a:hover { text-decoration: underline; }
 .lp-md a.lp-note-link { font-weight: 500; }

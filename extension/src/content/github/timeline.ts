@@ -23,6 +23,7 @@ import { openAgentView } from "./agentView";
 import { findAnchor, findAnchors, timeOf } from "./anchors";
 import { insertSuggestion, NeedsChoice } from "./insert";
 import { agentPath, elapsed, open, running, type ItemPage } from "./item";
+import { suggestionRenderer } from "./suggestionDiff";
 import { markdown, type MdOptions } from "./markdown";
 import { pushDialog, pushedNow, pushing } from "./pushDialog";
 import { blockedReason, cardsByNote, fromCard } from "../../shared/readyPush";
@@ -350,7 +351,7 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   if (draft !== undefined) editing.delete(s.id);
   if (s.kind === "action") wrap.append(h("div", { class: "lp-sugg-text lp-muted", text: "No comment: only these actions." }));
   else wrap.append(h("div", { class: "lp-sugg-text" }, markdown(s.text, { here: { repo: page.repo, number: page.number } })));
-  if (s.kind === "review") for (const line of s.lines.filter((l) => l.state !== "dismissed")) wrap.append(h("div", { class: "lp-sugg-text" }, h("strong", { text: `${line.path}:${line.line}` }), markdown(line.body)));
+  if (s.kind === "review") for (const line of s.lines.filter((l) => l.state !== "dismissed")) wrap.append(h("div", { class: "lp-sugg-text" }, h("strong", { text: `${line.path}:${line.line}` }), markdown(line.body, { suggestion: suggestionRenderer({ ...line, repo: page.repo, number: page.number, head: s.head }) })));
   if (s.status !== "draft" && s.status !== "inserted") return wrap;
   const actions = h("div", { class: "lp-actions" });
   if (s.kind !== "action" && s.status === "draft") actions.append(button("Edit", () => { editing.set(s.id, startEdit(s)); errors.delete(e.key); refresh(); }, { small: true, title: s.kind === "review" ? "Change the summary and the line comments before posting" : "Change the text before posting it" }));
