@@ -267,3 +267,11 @@ async fn a_sleep_and_its_wake_up_are_stored_together_or_not_at_all() {
     drop(db);
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn failure_line_is_one_short_line() {
+    assert_eq!(super::failure_line("  \n "), None);
+    assert_eq!(super::failure_line("claude exited (1):\n  auth failed\n").as_deref(), Some("claude exited (1): auth failed"));
+    let long = super::failure_line(&"x".repeat(500)).unwrap();
+    assert_eq!(long.chars().count(), 401);
+}

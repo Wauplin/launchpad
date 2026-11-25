@@ -54,6 +54,11 @@ seen_at: number,
  */
 last_message: string | null, 
 /**
+ * Why the last turn failed: the last error the session reported (a harness error, a launch that could not
+ * prepare its worktree, start its harness or take its lease), as one line. Cleared when a turn starts.
+ */
+failure?: string, 
+/**
  * The work of the last turn (branches, plain folders, conversation) is not all on Home yet: shown as
  * saving, retried by its runner until it is (`turn_sync`).
  */

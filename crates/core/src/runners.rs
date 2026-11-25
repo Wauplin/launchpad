@@ -1352,6 +1352,7 @@ pub(crate) fn placed_record(spec: &crate::model::LaunchSpec, id: &str, runner_id
         capacity_retry_at: None,
         seen_at: now,
         last_message: None,
+        failure: None,
         unsaved: None,
         sleep: None,
         group: None,

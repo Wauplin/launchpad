@@ -488,6 +488,9 @@ export function SessionPane({ sessionId, onClear, initialView, onView, targetSeq
       {s.capacity_retry_at != null && <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-teal-soft px-3 py-2 text-[12px] text-teal-ink">
         <Icon name="clock" size={16} />Model at capacity · automatic retry {s.capacity_retry_count + 1} scheduled for {when(s.capacity_retry_at)}. Resume now or archive to cancel.
       </div>}
+      {s.status === "error" && s.capacity_retry_at == null && <div role="alert" className="flex items-start gap-2 border-b border-line bg-diff-del px-3 py-2 text-[12px] text-gh-closed">
+        <Icon name="xcircle" size={16} /><span className="min-w-0 flex-1 break-words">{s.failure ? `The last turn failed: ${s.failure}` : <>The last turn failed. No reason was recorded: <code>launchpad logs --session {s.id}</code> on its runner shows why.</>}</span>
+      </div>}
       {pollProcesses && processesError != null && <div role="alert" className="px-3 py-2 text-[12px] text-danger">{String(processesError)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
       {hasProcesses && !processesOpen && !running && <div className="flex items-center gap-2 px-3 py-2 text-[12px] text-ink-3">Background commands are still running.<button className="btn btn-sm" onClick={() => setView("processes")}>View processes</button></div>}
       {processesOpen && <ProcessesPanel sessionId={s.id} processes={runningProcesses} refresh={() => processes.refetch()} />}

@@ -49,7 +49,7 @@ function drafts(): Draft[] {
     const more = { detail: s.last_message ? line(s.last_message) : "", session_id: s.id };
     if (s.open_question) out.push(item("question", "answer", s.id, s.title, place, s.status_since, { ...more, action: "session.answer" }));
     else if (s.status === "waiting") out.push(item("finished", "review", s.id, s.title, place, s.status_since, { ...more, action: "worktree.merge" }));
-    else out.push(item("failed", "review", s.id, s.title, place, s.status_since, { ...more, detail: s.status === "error" ? "Failed" : "Interrupted", action: "session.resume" }));
+    else out.push(item("failed", "review", s.id, s.title, place, s.status_since, { ...more, detail: s.status === "error" ? (s.failure ? `Failed: ${line(s.failure)}` : "Failed") : "Interrupted", action: "session.resume" }));
   }
   // One card per session: a Local PR of an agent that needs you goes inside its card.
   for (const p of world.predrafts) {

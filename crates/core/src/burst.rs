@@ -402,7 +402,7 @@ pub async fn stop(app: &App, runner_id: &str, error: Option<String>) -> Result<(
     let reason = error.clone().or_else(|| r.pending.as_ref().map(|_| "the Burst runner was stopped before it started".to_string()));
     if let Some(e) = &reason {
         match &r.pending {
-            Some(Pending::Launch { session_id, .. }) => fail_placeholder(app, session_id).await,
+            Some(Pending::Launch { session_id, .. }) => fail_placeholder(app, session_id, e).await,
             Some(Pending::Request { session_id, action, .. }) => fail_continuation(app, session_id, e, action == "input" || r.queued.iter().any(|q| q.action == "input")).await,
             Some(Pending::Move { session_id }) => fail_continuation(app, session_id, e, r.queued.iter().any(|q| q.action == "input")).await,
             None => {}
@@ -578,9 +578,9 @@ pub async fn launch(app: &App, spec: LaunchSpec, id: String, automatic: bool) ->
 }
 
 /// A placeholder whose launch never reached a runner.
-async fn fail_placeholder(app: &App, id: &str) {
+async fn fail_placeholder(app: &App, id: &str, error: &str) {
     if app.sessions.get(id).is_some_and(|s| s.last_seq == 0 && s.status == SessionStatus::Starting) {
-        let _ = app.sessions.set_replica_status(app, id, SessionStatus::Error).await;
+        let _ = app.sessions.set_replica_status(app, id, SessionStatus::Error, Some(&format!("Burst could not start this session: {error}"))).await;
     }
 }
 

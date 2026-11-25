@@ -188,3 +188,13 @@ test("an accepted message is one bubble: pending until its session shows the mes
   // A state change gives the row a new version (rows are memoized on it).
   assert.notEqual(pendingRows([send("m2", "sending")], [], "t1")[0].v, pendingRows([send("m2", "sent")], [], "t1")[0].v);
 });
+
+test("a session that failed before its turn ended shows its reason, else that none was recorded", () => {
+  const items = chatRows([session("a", [user("go")], { failed: true, failure: "Could not prepare the worktree from Home Git: timeout" })]);
+  assert.deepEqual(kinds(items), ["divider", "user", "ended"]);
+  assert.equal(items[2].error, "Could not prepare the worktree from Home Git: timeout");
+  const none = chatRows([session("b", [user("go")], { failed: true })]);
+  assert.equal(none[2].t, "ended");
+  assert.equal(none[2].error, null);
+  assert.equal(none[2].interrupted, false);
+});

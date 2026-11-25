@@ -212,11 +212,11 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
     if (!rows) { rows = foldTrace(buildRows(log), s.launch_spec.text, presets); folded.set(log, rows); }
     return {
       id: s.id, started_at: s.started_at, profile: s.launch_spec.profile, folder: s.launch_spec.target.kind === "temp" ? null : s.project_id, reason: s.launch_spec.bot?.reason ?? null, note: s.launch_spec.bot?.note ?? null, previous: s.launch_spec.bot?.previous?.title ?? null,
-      running: isRunning(s), rows, firstTs: log.events[0]?.ts ?? null, partial: !!log.earlier, changes: s.status !== "closed", sleep: isSleeping(s) ? s.sleep : null,
+      running: isRunning(s), failed: s.status === "error", failure: s.failure ?? null, rows, firstTs: log.events[0]?.ts ?? null, partial: !!log.earlier, changes: s.status !== "closed", sleep: isSleeping(s) ? s.sleep : null,
     };
   };
   // A sleep starts, changes or ends without a new status (Done stays Done): it is part of the key.
-  const sessionKey = (list: Session[]) => list.map((s) => `${s.id}:${s.status}:${s.open_question ? "q" : ""}:${s.sleep ? sleepKey(s.sleep) : ""}`).join();
+  const sessionKey = (list: Session[]) => list.map((s) => `${s.id}:${s.status}:${s.open_question ? "q" : ""}:${s.sleep ? sleepKey(s.sleep) : ""}:${s.failure ?? ""}`).join();
   const sessions = useMemo<ChatSession[]>(() => ready.map(toChat), [sessionKey(ready), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
   const otherReady = otherSessions.filter((s) => logs[s.id]?.loaded);
   const otherChats = useMemo(() => others.map((p) => ({ p, sessions: p.sessions.filter((s) => logs[s.id]?.loaded).map(toChat) })), [others, sessionKey(otherReady), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -780,7 +780,7 @@ function EndedRow({ item, canContinue }: { item: Extract<ChatItem, { t: "ended" 
   const [busy, setBusy] = useState(false);
   return <div className={`flex flex-wrap items-center gap-2 py-1.5 text-[12px] text-gh-closed ${MESSAGE_INDENT}`}>
     <Icon name="xcircle" size={12} />
-    <span className="min-w-0 flex-1 break-words">{item.error ? `The turn failed: ${item.error}` : "The turn was interrupted."}</span>
+    <span className="min-w-0 flex-1 break-words">{item.error ? `The turn failed: ${item.error}` : item.interrupted ? "The turn was interrupted." : <>The turn failed. No reason was recorded: <code>launchpad logs --session {item.sessionId}</code> on its runner shows why.</>}</span>
     {canContinue && <button className="btn btn-sm" disabled={busy} title="Continue the unfinished task" onClick={() => { setBusy(true); void runAction("session.resume", { id: item.sessionId }, { continue_turn: true }).catch(toastError).finally(() => setBusy(false)); }}>Continue</button>}
   </div>;
 }

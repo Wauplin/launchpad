@@ -180,6 +180,11 @@ pub struct Session {
     pub seen_at: i64,
     /// Start of the last assistant message, as one line of plain text.
     pub last_message: Option<String>,
+    /// Why the last turn failed: the last error the session reported (a harness error, a launch that could not
+    /// prepare its worktree, start its harness or take its lease), as one line. Cleared when a turn starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure: Option<String>,
     /// The work of the last turn (branches, plain folders, conversation) is not all on Home yet: shown as
     /// saving, retried by its runner until it is (`turn_sync`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -258,6 +263,7 @@ impl Session {
 
     pub fn change_status(&mut self, status: SessionStatus) {
         self.archived_done = status == SessionStatus::Closed && self.dependency_done();
+        if status.is_running() { self.failure = None; }
         self.status = status;
     }
 
@@ -1165,7 +1171,7 @@ mod group_tests {
                 live: false, open_question: c["open_question"].as_bool().unwrap(), model: None, effort: None, prompt: String::new(),
                 usage: Default::default(), started_at: 0, ended_at: None, last_seq: 0, launch_spec: Default::default(),
                 quota_pause: None, capacity_retry_count: 0, capacity_retry_at: None,
-                seen_at: if c["unseen"].as_bool().unwrap() { 5 } else { 20 }, last_message: None, unsaved: None,
+                seen_at: if c["unseen"].as_bool().unwrap() { 5 } else { 20 }, last_message: None, failure: None, unsaved: None,
                 sleep: c["sleep"].as_bool().unwrap().then(|| Sleep { until: Some(1), waits: String::new(), deadline: None, note: String::new(), schedule_id: "x".into() }),
                 group: None,
             };

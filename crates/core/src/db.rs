@@ -396,6 +396,7 @@ CREATE TABLE IF NOT EXISTS folio_block_use (folio_id TEXT NOT NULL, name TEXT NO
     if !has("generation") { conn.execute_batch("ALTER TABLE session ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;")?; }
     if !has("unsaved_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN unsaved_json TEXT;")?; }
     if !has("sleep_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN sleep_json TEXT;")?; }
+    if !has("failure") { conn.execute_batch("ALTER TABLE session ADD COLUMN failure TEXT;")?; }
     if !has("title_pending") { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
     // Existing sessions with a finished turn already had their conversation title.
     if !has("title_refreshed") {

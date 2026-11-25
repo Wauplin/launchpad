@@ -171,11 +171,15 @@ fn short(commit: &str) -> &str {
 
 // ------------------------------------------------------------------ collection
 
-/// The last error a session reported (its Error or Notice events), for its failure reason.
+/// Why a session failed: its recorded `failure`, else the last error of its recent events (a failed turn's end
+/// or an Error event), for sessions that failed before the record kept it.
 pub async fn session_reason(app: &App, s: &launchpad_core::model::Session) -> Option<String> {
+    if s.failure.is_some() {
+        return s.failure.clone();
+    }
     let events = app.sessions.events(app, &s.id, (s.last_seq - 40).max(0)).await.ok()?;
     events.iter().rev().find_map(|e| match &e.body {
-        EventBody::Error { message } => Some(message.clone()),
+        EventBody::Error { message } | EventBody::TurnEnd { error: Some(message), .. } => Some(message.clone()),
         _ => None,
     })
 }

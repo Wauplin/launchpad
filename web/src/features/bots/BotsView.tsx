@@ -259,7 +259,7 @@ function BotPageOf({ id }: { id: string }) {
   const status = statusOf(bot, thread, current, routines, step, otherSessions);
   const title = threadId === NEW_THREAD ? "New chat" : chat?.title ?? shownThread?.title ?? "Chat";
   const routine = chat?.kind === "thread" ? chat.routine : null;
-  const statusLine = <span className={`min-w-0 truncate ${status.tone}`} title={where && where.tone !== "quiet" ? where.title : undefined} data-tour="bots.status">{status.text}{where && where.tone !== "quiet" ? ` · ${where.label}` : ""}</span>;
+  const statusLine = <span className={`min-w-0 truncate ${status.tone}`} title={where && where.tone !== "quiet" ? where.title : status.text} data-tour="bots.status">{status.text}{where && where.tone !== "quiet" ? ` · ${where.label}` : ""}</span>;
   // Leave the chat without archiving: the Chats landing (the phone's ‹ goes back to the list).
   const closeChat = () => void navigate({ to: "/chats", search: {} as never });
   const archiveThread = shownThread && threadId !== NEW_THREAD && shownThread.archived_at == null && current ? <ArchiveThreadButton bot={bot} thread={shownThread} sessions={thread} /> : null;
@@ -324,7 +324,7 @@ function statusOf(bot: Bot, thread: Session[], current: Session | null, routines
   if (current && isRunning(current)) return { text: `Working${step ? ` · ${step}` : ""} (${age(current.status_since)})`, tone: "text-work" };
   if (current && isQuotaPaused(current)) return { text: "Quota paused · continues when the quota allows", tone: "text-attn" };
   if (current && isSleeping(current)) return { text: `Sleeping · ${sleepUntil(current.sleep!)}`, tone: "text-ink-2" };
-  if (current?.status === "error") return { text: "The last turn failed", tone: "text-gh-closed" };
+  if (current?.status === "error") return { text: current.failure ? `The last turn failed: ${current.failure}` : "The last turn failed · no reason recorded (launchpad logs --session on its runner)", tone: "text-gh-closed" };
   if (current?.status === "interrupted") return { text: "The last turn was interrupted", tone: "text-gh-closed" };
   if (!thread.length) return { text: bot.paused ? "Triggers paused · your messages still go through" : "Your first message starts it", tone: "text-ink-3" };
   if (!current) return { text: "Archived · your next message continues in a new chat", tone: "text-ink-3" };

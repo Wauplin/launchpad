@@ -319,6 +319,7 @@ impl Sessions {
                 capacity_retry_at: None,
                 seen_at: 0,
                 last_message: None,
+                failure: None,
                 unsaved: None,
                 sleep: None,
                 group: None,
@@ -372,7 +373,8 @@ impl Sessions {
             let _ = wait.await;
             let sink = this.sink(&app2, &id2);
             let mut prompt = prompt;
-            let mut prepared = true;
+            // Why the launch cannot start: recorded as the session's error after its first message.
+            let mut failed: Option<String> = None;
             for wid in &created {
                 if *cancelled.borrow() { break; }
                 let result = match crate::worktrees::get(&app2, wid).await {
@@ -380,24 +382,22 @@ impl Sessions {
                     _ => crate::worktrees::prepare(&app2, wid).await,
                 };
                 if let Err(e) = result {
-                    sink.emit(EventBody::Notice { text: format!("Could not prepare the worktree from Home Git: {e:#}") }).await;
-                    prepared = false;
+                    failed = Some(format!("Could not prepare the worktree from Home Git: {e:#}"));
                     break;
                 }
             }
             // Plain folders and asset folders come down from Home; the session takes their locks.
-            if prepared && !*cancelled.borrow() && let Err(e) = crate::plain::prepare(&app2, &id2).await {
-                sink.emit(EventBody::Notice { text: format!("Could not prepare the folder from Home: {e:#}") }).await;
-                prepared = false;
+            if failed.is_none() && !*cancelled.borrow() && let Err(e) = crate::plain::prepare(&app2, &id2).await {
+                failed = Some(format!("Could not prepare the folder from Home: {e:#}"));
             }
             for p in &views {
-                if *cancelled.borrow() || !prepared { break; }
+                if *cancelled.borrow() || failed.is_some() { break; }
                 let synced = if p.plain { crate::plain::reference(&app2, &p.id, std::path::Path::new(&p.path)).await } else { crate::repo_cache::sync(&app2, p).await.map(drop) };
                 if let Err(e) = synced {
                     sink.emit(EventBody::Notice { text: format!("Could not refresh the context folder {}: {e:#}", p.name) }).await;
                 }
             }
-            if prepared && let Some((existing, title)) = &local_pr && let Some(w) = created.first() && let Ok(w) = crate::worktrees::get(&app2, w).await {
+            if failed.is_none() && let Some((existing, title)) = &local_pr && let Some(w) = created.first() && let Ok(w) = crate::worktrees::get(&app2, w).await {
                 let opened = match existing {
                     Some(p) => crate::predrafts::open_for_branch(&app2, &p.project_id, &p.branch, Some(&p.base_branch), Some(&id2), None).await,
                     None => crate::predrafts::open_for_branch(&app2, &w.project_id, &w.branch, w.base_branch.as_deref(), Some(&id2), Some(title.clone())).await,
@@ -407,11 +407,13 @@ impl Sessions {
                     Err(e) => sink.emit(EventBody::Notice { text: format!("Could not open the Local PR on Home: {e:#}") }).await,
                 }
             }
-            if !prepared {
+            if let Some(reason) = failed {
                 if let Some(s) = this.get(&id2).filter(|s| s.status == SessionStatus::Starting) {
                     // The first message stays in the conversation, before its failure (its ID is the session's).
                     sink.emit(EventBody::UserMessage { text: prompt.clone(), client_id: id2.clone(), queued: false, images: images.clone(), from: s.launch_spec.from.clone() }).await;
-                    sink.set_status(SessionStatus::Error).await;
+                    sink.fail(&reason).await;
+                } else {
+                    sink.emit(EventBody::Notice { text: reason }).await;
                 }
                 let _ = stopped.send(());
                 this.inner.setups.lock().unwrap().remove(&id2);

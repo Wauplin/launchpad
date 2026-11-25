@@ -212,7 +212,11 @@ fn session_item(s: &Session) -> Option<Item> {
     } else if s.status.is_done() {
         Item::new(Kind::Finished, Filter::Review, &s.id, &s.title, place, s.status_since).action("worktree.merge")
     } else {
-        let what = if s.status == SessionStatus::Error { "Failed" } else { "Interrupted" };
+        let what = match (&s.status, &s.failure) {
+            (SessionStatus::Error, Some(why)) => format!("Failed: {}", line(why)),
+            (SessionStatus::Error, None) => "Failed".to_string(),
+            _ => "Interrupted".to_string(),
+        };
         Item::new(Kind::Failed, Filter::Review, &s.id, &s.title, place, s.status_since).action("session.resume").detail(what)
     };
     let item = if item.detail.is_empty() { item.detail(detail) } else { item };

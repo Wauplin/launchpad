@@ -31,6 +31,10 @@ export type ChatSession = {
   previous?: string | null;
   /** Starting, working or background: its last turn without an end gets the working line. */
   running: boolean;
+  /** The session failed (`error`): its last turn without an end gets the failed line, with `failure` as its reason. */
+  failed?: boolean;
+  /** Why it failed (`Session.failure`), else null. */
+  failure?: string | null;
   rows: TraceRow[];
   /** Timestamp of the first loaded event; earlier events (and the cards written then) are not loaded yet. */
   firstTs: number | null;
@@ -227,6 +231,12 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
       for (const c of cardsHere) out.push({ key: `c:${c.kind}:${c.id}`, v: c.v, t: "card", kind: c.kind, id: c.id, text: c.text ?? null });
       for (const r of t.body) if (r.t === "ask") out.push({ key: k(r.key), v: r.answers ? "a" : "", t: "ask", sessionId: s.id, row: r });
       if (t.end && (t.end.error || t.end.interrupted)) out.push({ key: k(`e:${t.end.key}`), v: "", t: "ended", sessionId: s.id, interrupted: t.end.interrupted, error: t.end.error });
+      // A turn that failed before or outside the agent's output (a worktree Home could not prepare, a harness that
+      // did not start) has no end: the session's reason, else its last error, else none.
+      else if (last && !t.end && s.failed) {
+        const error = s.failure ?? t.body.findLast((r) => r.t === "error")?.text ?? null;
+        out.push({ key: k(`e:${t.key}`), v: error ?? "", t: "ended", sessionId: s.id, interrupted: false, error });
+      }
       if (working) out.push({ key: k("w"), v: steps.at(-1) ?? "", t: "working", sessionId: s.id, step: steps.at(-1) ?? null });
     });
     if (!turns.length) for (const c of after) out.push({ key: `c:${c.kind}:${c.id}`, v: c.v, t: "card", kind: c.kind, id: c.id, text: c.text ?? null });

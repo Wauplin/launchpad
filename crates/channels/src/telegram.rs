@@ -416,7 +416,7 @@ fn notification_chat(st: Option<&State>, configured: bool) -> Option<i64> {
 }
 
 /// Home: sends a notification to the chat of the session's workspace when its notifications are on. Never
-/// contains code or messages.
+/// contains code or messages; a failure shows its reason.
 pub async fn notification(app: &App, session_id: &str, event: &str) -> Result<()> {
     crate::connections::ensure_home(app)?;
     // The session's workspace, through its folder, like Today.
@@ -448,7 +448,13 @@ pub async fn notification(app: &App, session_id: &str, event: &str) -> Result<()
         "done" | "failed" | "interrupted" => card_link(app, session_id, &workspace).await,
         _ => session_link(app, session_id, &workspace).await,
     };
-    say(app, &workspace, &format!("{} in {project} · {}{title}\n{link}", label(event), session_name(&s))).await
+    // Why it failed is Launchpad's or the harness's error (a worktree that could not be prepared, a harness that
+    // did not start), never the agent's message.
+    let why = match (&s.failure, event) {
+        (Some(f), "failed") if s.status == SessionStatus::Error => format!("\n{}", f.chars().take(300).collect::<String>()),
+        _ => String::new(),
+    };
+    say(app, &workspace, &format!("{} in {project} · {}{title}{why}\n{link}", label(event), session_name(&s))).await
 }
 
 // ---------------------------------------------------------------- incoming messages

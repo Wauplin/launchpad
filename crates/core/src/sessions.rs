@@ -320,7 +320,7 @@ impl Sessions {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
                             effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending,
-                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json, title_refreshed, sleep_json
+                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json, title_refreshed, sleep_json, failure
                      FROM session",
                 )?;
                 let rows = st
@@ -365,6 +365,7 @@ impl Sessions {
                             last_message: r.get::<_, Option<String>>(21)?.and_then(|m| message_preview(&m)),
                             unsaved: r.get::<_, Option<String>>(27)?.and_then(|v| serde_json::from_str(&v).ok()),
                             sleep: r.get::<_, Option<String>>(29)?.and_then(|v| serde_json::from_str(&v).ok()),
+                            failure: r.get(30)?,
                             group: None,
                         })
                     })?
@@ -721,10 +722,12 @@ impl Sessions {
         Ok(())
     }
 
-    /// Home: a status Home sets itself for a session no runner holds (a stopped Burst job, a failed start).
-    pub(crate) async fn set_replica_status(&self, app: &App, id: &str, status: SessionStatus) -> Result<Session> {
+    /// Home: a status Home sets itself for a session no runner holds (a stopped Burst job, a failed start), with
+    /// the reason of a failure.
+    pub(crate) async fn set_replica_status(&self, app: &App, id: &str, status: SessionStatus, failure: Option<&str>) -> Result<Session> {
         let s = self.update(app, id, |s| {
             s.change_status(status);
+            if let Some(f) = failure { s.failure = failure_line(f); }
             s.status_since = now_ms();
             if status == SessionStatus::Closed {
                 s.ended_at = Some(now_ms());
@@ -743,6 +746,7 @@ impl Sessions {
             s.change_status(SessionStatus::Error);
             s.status_since = now_ms();
             s.live = false;
+            s.failure = failure_line(&reason);
             s.last_message = Some(reason);
         })
         .await?;
@@ -1755,11 +1759,16 @@ impl Sink {
             return;
         }
         let preview = match &body { EventBody::AssistantMessage { text, .. } => message_preview(text), _ => None };
+        let failure = match &body {
+            EventBody::Error { message } | EventBody::TurnEnd { error: Some(message), .. } => failure_line(message),
+            _ => None,
+        };
         let stored = {
             let mut recs = self.sessions.inner.records.lock().unwrap();
             let Some(s) = recs.get_mut(&self.id) else { return };
             s.last_seq += 1;
             if preview.is_some() { s.last_message = preview.clone(); }
+            if failure.is_some() { s.failure = failure.clone(); }
             let seq = s.last_seq;
             let generation = s.generation;
             let ev = SessionEvent { session_id: self.id.clone(), seq, ts, body };
@@ -1769,7 +1778,7 @@ impl Sink {
             self.app.state_db.enqueue(move |c| {
                 let tx = c.transaction()?;
                 tx.execute("INSERT INTO session_event (session_id, seq, ts, kind, json) VALUES (?1, ?2, ?3, ?4, ?5)", params![id, seq, ts, kind, json])?;
-                tx.execute("UPDATE session SET last_seq = max(last_seq, ?1), last_message = coalesce(?3, last_message) WHERE id = ?2", params![seq, id, preview])?;
+                tx.execute("UPDATE session SET last_seq = max(last_seq, ?1), last_message = coalesce(?3, last_message), failure = coalesce(?4, failure) WHERE id = ?2", params![seq, id, preview, failure])?;
                 crate::replica::queue(&tx, &crate::replica::Item::Event { generation, event: ev.clone() })?;
                 tx.commit()?;
                 sink.publish(&ev);
@@ -2136,6 +2145,13 @@ pub fn message_preview(text: &str) -> Option<String> {
     }
     if out.is_empty() { return None; }
     Some(if out.chars().count() > 160 { format!("{}…", out.chars().take(160).collect::<String>().trim_end()) } else { out })
+}
+
+/// A failure reason as one line of at most 400 characters, for the session's `failure`, Today and notifications.
+pub fn failure_line(text: &str) -> Option<String> {
+    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.is_empty() { return None; }
+    Some(if line.chars().count() > 400 { format!("{}…", line.chars().take(400).collect::<String>()) } else { line })
 }
 
 pub fn shorten(s: &str, max: usize) -> String {
