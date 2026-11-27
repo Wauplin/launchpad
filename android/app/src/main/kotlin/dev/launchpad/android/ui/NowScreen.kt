@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +75,8 @@ import dev.launchpad.android.gen.Bot
 import dev.launchpad.android.gen.Folio
 import dev.launchpad.android.gen.Session
 import dev.launchpad.android.gen.TodayItem
+import dev.launchpad.android.gen.FileAttachment
+import androidx.compose.runtime.mutableStateListOf
 import dev.launchpad.android.net.Conn
 import kotlinx.coroutines.launch
 
@@ -129,7 +132,7 @@ fun askTargets(bots: List<Bot>, workspace: String): List<AskTarget> {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NowScreen(onAsk: (AskTarget, String) -> Unit) {
+fun NowScreen(onAsk: (AskTarget, String, List<FileAttachment>) -> Unit) {
     val c = LocalLp.current
     val context = LocalContext.current
     val nav = Graph.nav
@@ -179,7 +182,7 @@ fun NowScreen(onAsk: (AskTarget, String) -> Unit) {
                     else -> c.attn to "Not live"
                 }
                 GlyphButton("●", "Connection: $state", { Graph.stream.retryNow(); Graph.toast(if (conn == Conn.Live) "Live · ${Graph.store.link.value.space}" else "$state · ${Graph.store.link.value.space}") }, color = dot)
-                GlyphButton("⌕", "Search in the browser", { openInBrowser(context, "/chats?ws=$workspace") })
+                GlyphButton("⌕", "Search", { nav.open(Route.Search) })
                 GlyphButton("⋯", "This phone", { nav.open(Route.ThisPhone) })
             }
             // Scope chips: each turns the screen into that full list.
@@ -288,10 +291,8 @@ private fun WaitingCard(waiting: List<TodayItem>, sessions: List<Session>) {
             }
             Text(listOfNotNull(KIND_LABEL[item.kind], ago(item.at).takeIf { it.isNotEmpty() }).joinToString(" · "), fontSize = Type.tiny, color = c.attn)
             if (item.detail.isNotBlank()) Text(item.detail, fontSize = Type.small, color = c.ink2, maxLines = 4, overflow = TextOverflow.Ellipsis)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { Graph.nav.open(routeOf(item, sessions)) }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Open") }
-                if (waiting.size > 1) OutlinedButton(onClick = { later = (later - item.id) + item.id }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Later ›") }
-            }
+            ItemActions(item, sessions)
+            if (waiting.size > 1) TextButton(onClick = { later = (later - item.id) + item.id }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Later ›") }
         }
     }
 }
@@ -331,30 +332,60 @@ private fun FolioCard(f: Folio) {
     }
 }
 
-/** "Ask or start…": one box for anything new, its target one tap away (the chip cycles through bots and New agent). */
+/**
+ * "Ask or start…": one box for anything new, its target one tap away (the chip cycles through bots and New agent).
+ * What another app shared (text, links, files) lands here; New agent also offers More options ↗ (the composer in the
+ * browser, with the text).
+ */
 @Composable
-fun AskBox(targets: List<AskTarget>, onAsk: (AskTarget, String) -> Unit) {
+fun AskBox(targets: List<AskTarget>, onAsk: (AskTarget, String, List<FileAttachment>) -> Unit) {
     val c = LocalLp.current
+    val context = LocalContext.current
     val settings by Graph.store.settings.collectAsStateWithLifecycle()
     var text by rememberSaveable { mutableStateOf("") }
+    val files = remember { mutableStateListOf<FileAttachment>() }
+    var uploading by remember { mutableStateOf(0) }
     val target = targets.firstOrNull { it.key == settings.askTarget } ?: targets.firstOrNull() ?: AskTarget.NewAgent
+    val shared = Graph.nav.shared
+    LaunchedEffect(shared) {
+        val sh = shared ?: return@LaunchedEffect
+        Graph.nav.shared = null
+        if (sh.text.isNotBlank()) text = if (text.isBlank()) sh.text else text + "\n" + sh.text
+        for (uri in sh.uris) launch {
+            uploading++
+            try { files += uploadUri(context, uri) } catch (e: dev.launchpad.android.net.HomeException) { Graph.toast(e.message ?: "Upload failed") } finally { uploading-- }
+        }
+    }
     Column(Modifier.background(c.chrome).navigationBarsPadding().imePadding()) {
         HorizontalDivider(color = c.line2)
+        if (files.isNotEmpty() || uploading > 0) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (f in files.toList()) TextButton(onClick = { files.remove(f) }) { Text("${f.name} ✕", fontSize = Type.small, maxLines = 1) }
+            if (uploading > 0) Text("Uploading…", Modifier.padding(8.dp), fontSize = Type.small, color = c.ink3)
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Column(Modifier.weight(1f)) {
-                TextButton(
-                    onClick = {
-                        val next = targets.getOrNull((targets.indexOf(target) + 1) % targets.size.coerceAtLeast(1)) ?: target
-                        Graph.scope.launch { Graph.store.setSettings(Graph.store.settings.value.copy(askTarget = next.key)) }
-                    },
-                    modifier = Modifier.heightIn(min = 44.dp).semantics { contentDescription = "Send to ${target.label}. Change target" },
-                ) { Text("${target.label} ⇄", fontSize = Type.small, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        onClick = {
+                            val next = targets.getOrNull((targets.indexOf(target) + 1) % targets.size.coerceAtLeast(1)) ?: target
+                            Graph.scope.launch { Graph.store.setSettings(Graph.store.settings.value.copy(askTarget = next.key)) }
+                        },
+                        modifier = Modifier.heightIn(min = 44.dp).semantics { contentDescription = "Send to ${target.label}. Change target" },
+                    ) { Text("${target.label} ⇄", fontSize = Type.small, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    if (target == AskTarget.NewAgent) TextButton(
+                        onClick = { openInBrowser(context, "/?share_text=" + java.net.URLEncoder.encode(text, "UTF-8") + "&ws=" + Graph.repo.workspaceId.value) },
+                        modifier = Modifier.heightIn(min = 44.dp),
+                    ) { Text("More options ↗", fontSize = Type.small) }
+                }
                 OutlinedTextField(
-                    value = text, onValueChange = { text = it }, placeholder = { Text("Ask or start…", fontSize = Type.body) },
+                    value = text, onValueChange = { text = it; dev.launchpad.android.data.Presence.input() }, placeholder = { Text("Ask or start…", fontSize = Type.body) },
                     modifier = Modifier.fillMaxWidth(), maxLines = 5, shape = RoundedCornerShape(12.dp),
                 )
             }
-            Button(onClick = { val t = text.trim(); text = ""; onAsk(target, t) }, enabled = text.isNotBlank(), modifier = Modifier.heightIn(min = 48.dp)) { Text("Send") }
+            Button(
+                onClick = { val t = text.trim(); val f = files.toList(); text = ""; files.clear(); onAsk(target, t, f) },
+                enabled = uploading == 0 && (text.isNotBlank() || files.isNotEmpty()), modifier = Modifier.heightIn(min = 48.dp),
+            ) { Text("Send") }
         }
     }
 }

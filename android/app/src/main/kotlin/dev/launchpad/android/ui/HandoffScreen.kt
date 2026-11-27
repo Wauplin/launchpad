@@ -43,6 +43,7 @@ fun HandoffScreen(route: Route) {
         is Route.FolioReader -> folios.firstOrNull { it.slug == route.slug }.let { f -> (f?.title ?: route.title.ifEmpty { route.slug }) to listOfNotNull(f?.summary, f?.let { "rev ${it.rev.toInt()}" }) }
         is Route.Card -> today.items.firstOrNull { it.id == route.itemId }.let { i -> (i?.title ?: route.title.ifEmpty { "Today" }) to listOfNotNull(i?.detail?.takeIf { it.isNotBlank() }) }
         Route.ThisPhone -> "This phone" to emptyList()
+        Route.Search -> "Search" to emptyList()
     }
     Column(Modifier.fillMaxSize().background(c.paper)) {
         ScreenBar(title, onBack = { Graph.nav.back() })

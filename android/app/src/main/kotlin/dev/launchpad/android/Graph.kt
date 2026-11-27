@@ -124,6 +124,8 @@ object Graph {
         _linked.value = false
         stream.reset()
         repo.wipe()
+        // The folio reader's offline copies and reading positions.
+        dev.launchpad.android.data.FolioCache.wipe()
         store.wipe()
         nav.reset()
     }

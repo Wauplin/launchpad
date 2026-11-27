@@ -20,7 +20,12 @@ sealed interface Route {
     /** A Today card the phone does not act on (a proposal, a Local PR…): it opens in the browser. */
     data class Card(val itemId: String, val title: String = "") : Route
     data object ThisPhone : Route
+    /** ⌕: the loaded conversations, agents and folios of the workspace, by title. */
+    data object Search : Route
 }
+
+/** What another app shared into Launchpad: it waits in the Ask box until sent or cleared. */
+data class Shared(val text: String, val uris: List<Uri>)
 
 /** What the first screen lists: Now, or one full list (the scope chips). */
 enum class Scope(val label: String) { Now("Now"), Chats("Chats"), Agents("Agents"), Folios("Folios") }
@@ -32,6 +37,12 @@ enum class Scope(val label: String) { Now("Now"), Chats("Chats"), Agents("Agents
 class Navigator {
     val stack = mutableStateListOf<Route>()
     var scope by mutableStateOf(Scope.Now)
+    /** Shared text, links and files for the Ask box (Android's share sheet). */
+    var shared by mutableStateOf<Shared?>(null)
+
+    fun share(text: String, uris: List<Uri>) {
+        shared = Shared(text, uris)
+    }
 
     val top: Route? get() = stack.lastOrNull()
 
@@ -75,6 +86,7 @@ fun webPath(route: Route?, workspace: String): String {
         is Route.FolioReader -> "/folios/${Uri.encode(route.slug)}?ws=$ws"
         is Route.Card -> "/?card=${Uri.encode(route.itemId)}&ws=$ws"
         Route.ThisPhone -> "/settings/devices?ws=$ws"
+        Route.Search -> "/chats?ws=$ws"
         null -> "/?ws=$ws"
     }
 }
