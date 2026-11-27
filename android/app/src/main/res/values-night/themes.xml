@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="lp_paper">#0D1117</color>
+    <style name="Theme.Launchpad" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/lp_paper</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
