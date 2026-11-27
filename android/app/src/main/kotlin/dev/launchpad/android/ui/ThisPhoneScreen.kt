@@ -56,6 +56,27 @@ fun ThisPhoneScreen() {
                     }
                 }
             }
+            Field("Notifications", when {
+                !dev.launchpad.android.push.Push.configured -> "Not in this build (no Firebase project)"
+                androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled() -> "On: Home wakes this phone, with no text in the push"
+                else -> "Off in Android settings"
+            })
+            OutlinedButton(onClick = {
+                context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
+            }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Notification settings") }
+            if (dev.launchpad.android.update.UpdateCheck.enabled) {
+                var update by remember { mutableStateOf<String?>(null) }
+                OutlinedButton(onClick = {
+                    update = "Checking…"
+                    Graph.scope.launch {
+                        update = runCatching { dev.launchpad.android.update.UpdateCheck.check() }.fold(
+                            onSuccess = { found -> if (found == null) "This is the newest app." else { dev.launchpad.android.update.UpdateCheck.notify(context, found); "${found.name} is available: see the notification." } },
+                            onFailure = { "GitHub did not answer: ${it.message}" },
+                        )
+                    }
+                }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Check for updates") }
+                update?.let { Muted(it) }
+            }
             OutlinedButton(onClick = { openInBrowser(context, webPath(Route.ThisPhone, Graph.repo.workspaceId.value)) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Settings in the browser ↗") }
             OutlinedButton(onClick = { confirm = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Sign out", color = c.danger) }
             Muted("Sign out deletes this phone from Home's devices, then its secrets and cached data from the phone.")

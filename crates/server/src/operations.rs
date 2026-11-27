@@ -46,7 +46,13 @@ async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiEr
         || path
             .strip_prefix("/api/sessions/")
             .is_some_and(|p| p.split('/').count() == 2 && p.ends_with("/input"))
-        || bot_message;
+        || bot_message
+        // The phone's sends from a notification or a screen: an answer, a reply to a card, a post in a channel.
+        || ["/answer", "/reply", "/messages"].iter().any(|end| {
+            ["/api/sessions/", "/api/proposals/", "/api/channels/"].iter().any(|start| {
+                path.strip_prefix(start).is_some_and(|p| p.split('/').count() == 2 && p.ends_with(end))
+            })
+        });
     // The owner's bot message is stored by its ID before anything is sent (`launchpad_channels::sends`): a retry
     // after an interrupted request runs again and gets the stored message, never a second one.
     let replayable = bot_message && req.extensions().get::<launchpad_http::AgentSession>().is_none();

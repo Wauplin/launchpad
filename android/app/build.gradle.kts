@@ -97,6 +97,7 @@ dependencies {
     implementation(libs.work.runtime)
     implementation(libs.webkit)
     implementation(libs.core.ktx)
+    implementation(libs.fragment)
     implementation(libs.firebase.messaging)
     implementation(libs.okhttp)
     implementation(libs.serialization.json)

@@ -70,6 +70,9 @@ object Graph {
         repo = Repository(home, stream, cache, store, scope)
         signIn = SignInFlow()
         _linked.value = store.linked
+        // Notification channels, and Firebase when this build has it (else no push, everything else works).
+        dev.launchpad.android.push.Push.init(app)
+        dev.launchpad.android.update.UpdateCheck.schedule(app)
         scope.launch {
             home.failures.collect { failure ->
                 when (failure) {
@@ -83,14 +86,21 @@ object Graph {
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 visible = true
-                if (_linked.value) stream.setVisible(true)
+                if (_linked.value) {
+                    stream.setVisible(true)
+                    // The shade follows Home's list also without a wake-up (answered on the laptop meanwhile).
+                    scope.launch { runCatching { dev.launchpad.android.push.Notifier.refresh(context) } }
+                }
             }
             override fun onStop(owner: LifecycleOwner) {
                 visible = false
                 stream.setVisible(false)
             }
         })
-        if (_linked.value) repo.start()
+        if (_linked.value) {
+            repo.start()
+            dev.launchpad.android.push.Push.register()
+        }
     }
 
     /** Home created this phone's device (the end of Connect). */
@@ -100,6 +110,7 @@ object Graph {
         nav.reset()
         repo.start()
         if (visible) stream.setVisible(true)
+        dev.launchpad.android.push.Push.register()
     }
 
     /** Home refused this device (Revoke in Settings → Devices): secrets and cache are deleted, back to Connect. */
@@ -126,6 +137,8 @@ object Graph {
         repo.wipe()
         // The folio reader's offline copies and reading positions.
         dev.launchpad.android.data.FolioCache.wipe()
+        // Notifications of a Home this phone no longer reads.
+        dev.launchpad.android.push.Notifier.wipe(context)
         store.wipe()
         nav.reset()
     }

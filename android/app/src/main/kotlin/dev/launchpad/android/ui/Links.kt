@@ -94,6 +94,19 @@ object Links {
      */
     fun handle(context: Context, intent: Intent?) {
         if (intent == null || !Graph.linked.value) return
+        // A notification: its screen with Now under it (empty: Now itself).
+        intent.getStringExtra(dev.launchpad.android.push.EXTRA_OPEN)?.let { target ->
+            intent.removeExtra(dev.launchpad.android.push.EXTRA_OPEN)
+            val parts = target.split(":", limit = 3)
+            when (parts[0]) {
+                "session" -> Graph.nav.openFromOutside(sessionRoute(parts.getOrElse(1) { "" }))
+                "thread" -> if (parts.size == 3) Graph.nav.openFromOutside(Route.Conversation(parts[1], parts[2]))
+                "channel" -> Graph.nav.openFromOutside(Route.ChannelChat(parts.getOrElse(1) { "" }))
+                "card" -> openItem(target.removePrefix("card:"))
+                else -> Graph.nav.reset()
+            }
+            return
+        }
         when (intent.action) {
             Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE -> {
                 val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT), intent.getStringExtra(Intent.EXTRA_TEXT)).filter { it.isNotBlank() }.distinct().joinToString("\n")

@@ -2,6 +2,7 @@ package dev.launchpad.android
 
 import android.content.Intent
 import android.os.Bundle
+import androidx.lifecycle.lifecycleScope
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -41,9 +42,32 @@ class MainActivity : ComponentActivity() {
         dev.launchpad.android.data.Presence.start()
         // A link or a share that started the app (once: not again after a configuration change).
         if (savedInstanceState == null) dev.launchpad.android.ui.Links.handle(this, intent)
+        askNotifications()
         setContent {
             val settings by Graph.store.settings.collectAsStateWithLifecycle()
             LaunchpadTheme(settings.theme) { AppRoot() }
+        }
+    }
+
+    private val notificationPermission = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) dev.launchpad.android.push.Push.register()
+    }
+
+    /**
+     * Android 13+: notifications need the owner's yes, asked once after this phone is connected. The phone is
+     * Launchpad's only notification channel; a no keeps everything else working (This phone → Notifications).
+     */
+    private fun askNotifications() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        val prefs = getSharedPreferences("app", MODE_PRIVATE)
+        lifecycleScope.launch {
+            Graph.linked.collect { linked ->
+                val granted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (linked && !granted && !prefs.getBoolean("asked_notifications", false)) {
+                    prefs.edit().putBoolean("asked_notifications", true).apply()
+                    notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
         }
     }
 

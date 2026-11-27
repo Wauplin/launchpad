@@ -95,21 +95,24 @@ object Sends {
         protected = true,
     )
 
-    /** An answer to an open question (`session.answer`): one answer per question. Not protected by Home. */
+    /** An answer to an open question (`session.answer`): one answer per question. Protected by Home. */
     fun answer(sessionId: String, requestId: String, answers: List<String>, key: String = newKey()) = Outgoing(
         key, answers.joinToString(" · "), "POST", "/api/sessions/${enc(sessionId)}/answer",
         buildJsonObject { put("request_id", requestId); put("answers", buildJsonArray { answers.forEach { add(JsonPrimitive(it)) } }) },
+        protected = true,
     )
 
-    /** The owner's post in a channel or DM (`channel.post`); `replyTo` answers a bot's ask. Not protected by Home. */
+    /** The owner's post in a channel or DM (`channel.post`); `replyTo` answers a bot's ask. Protected by Home. */
     fun channelPost(channelId: String, text: String, replyTo: Long? = null, key: String = newKey()) = Outgoing(
         key, text, "POST", "/api/channels/${enc(channelId)}/messages",
         buildJsonObject { put("text", text); if (replyTo != null) put("reply_to", replyTo) },
+        protected = true,
     )
 
-    /** A reply to a report card that asks (`proposal.reply`). Not protected by Home. */
+    /** A reply to a report card that asks (`proposal.reply`). Protected by Home. */
     fun proposalReply(proposalId: String, text: String, key: String = newKey()) = Outgoing(
         key, text, "POST", "/api/proposals/${enc(proposalId)}/reply", buildJsonObject { put("text", text) },
+        protected = true,
     )
 
     /**
