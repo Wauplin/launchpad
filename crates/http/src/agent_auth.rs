@@ -454,7 +454,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (false, ["runners", _, "update"]) => Shared,
         (false, ["link"] | ["sleep"] | ["ci", "approve"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["notes"] | ["connections", "send"] | ["slack", "run"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
-        (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics" | "notes" | "ref"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
+        (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics" | "notes" | "ref" | "archive-done"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
         // The agent's own channels: Home resolves them in the session's workspace (`launchpad_channels::agent`).
         (true, ["channels", "agent"] | ["channels", "agent", "read" | "file" | "scheduled"]) | (false, ["channels", "agent", "post" | "upload" | "cancel"]) => Shared,
@@ -472,7 +472,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (false, ["projects", "git"]) => Body,
         (_, ["projects", id] | ["projects", id, "branches"]) => Folder(id),
         (_, ["predrafts", id] | ["predrafts", id, "record"]) | (false, ["predrafts", id, "publish" | "update-published" | "discard" | "reopen"]) => LocalPr(id),
-        (_, ["workspaces", id]) => Workspace(id),
+        (_, ["workspaces", id]) | (false, ["workspaces", id, "archive-done"]) => Workspace(id),
         (false, ["worktrees", id, "discard" | "fix"]) => Worktree(id),
         (_, ["tool-defaults", scope, id]) => Tools(scope, id),
         (true, ["gh", owner, repo, ..]) => Repo(owner, repo),
@@ -796,7 +796,7 @@ mod tests {
         assert_eq!(names(&Method::POST, "/api/channels/agent/upload"), Shared);
         assert_eq!(names(&Method::POST, "/api/channels/agent/file"), Unscoped);
         assert_eq!(names(&Method::GET, "/api/channels/agent/upload"), Unscoped);
-        for path in ["/api/context/sessions", "/api/context/folders", "/api/context/notes", "/api/proposals", "/api/today", "/api/activity", "/api/predrafts"] {
+        for path in ["/api/context/sessions", "/api/context/folders", "/api/context/notes", "/api/context/archive-done", "/api/proposals", "/api/today", "/api/activity", "/api/predrafts"] {
             assert_eq!(names(&Method::GET, path), Listed, "{path}");
         }
         for path in ["/api/context/presets", "/api/context/hops", "/api/context/conversation", "/api/context/egress", "/api/status", "/api/settings/shared", "/api/context/health", "/api/logs", "/api/predrafts/resolve"] {
@@ -808,6 +808,8 @@ mod tests {
         }
         assert_eq!(names(&Method::POST, "/api/proposals"), Shared);
         assert_eq!(names(&Method::POST, "/api/sessions"), Body);
+        // Archive automation threads applies in the workspace its path names.
+        assert_eq!(names(&Method::POST, "/api/workspaces/w1/archive-done"), Workspace("w1"));
         // Lists are narrowed to the session's workspace, named by ID or name; another workspace is refused.
         let q = |query: Option<&str>| narrowed(query, "w1", "Work").map(|p| with_query("/api/context/sessions", p));
         assert_eq!(q(None).unwrap(), "/api/context/sessions?workspace=w1");

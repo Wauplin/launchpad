@@ -33,6 +33,7 @@ import { PullToRefresh } from "@/components/PullToRefresh";
 import { useColumn } from "@/components/ResizeHandle";
 import { useQueryClient } from "@tanstack/react-query";
 import { SessionStatus } from "./SessionBits";
+import { ArchiveAutomationDialog } from "./ArchiveAutomation";
 import { useMarkSeen, useWindowFocused } from "./useSeen";
 import { age, formatReset } from "@/lib/format";
 import { toast, toastError } from "@/components/Toast";
@@ -141,6 +142,7 @@ export function AgentsView() {
   const [selection, setSelection] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [archiveAutomation, setArchiveAutomation] = useState(false);
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
   const projects = useProjects().data;
@@ -250,7 +252,7 @@ export function AgentsView() {
     }
   }, [visible, clearSession]);
 
-  type Item = { kind: "group"; title: AgentGroup; count: number; highlight?: boolean; detail?: string } | { kind: "session"; session: Session } | { kind: "more" } | { kind: "archive-old" };
+  type Item = { kind: "group"; title: AgentGroup; count: number; highlight?: boolean; detail?: string } | { kind: "session"; session: Session } | { kind: "more" } | { kind: "archive-old" } | { kind: "archive-automation" };
   const groupCollapsed = (title: AgentGroup) => isCollapsed(collapsedGroups, title);
   const toggleListGroup = toggleGroup;
   // Groups with no items are not shown at all.
@@ -261,14 +263,14 @@ export function AgentsView() {
     ...group("Running", sessionRows(running)),
     ...group("Quota paused", sessionRows(quotaPaused)),
     ...group("Sleeping", sessionRows(sleeping)),
-    ...group("Done", sessionRows(done), { tail: oldDone.length ? [{ kind: "archive-old" }] : [] }),
+    ...group("Done", sessionRows(done), { tail: [...(oldDone.length ? [{ kind: "archive-old" as const }] : []), { kind: "archive-automation" as const }] }),
     ...group("Stopped", sessionRows(stopped)),
     ...group("Interrupted", sessionRows(interrupted)),
     ...group("Failed", sessionRows(failed)),
     ...group("In terminal", sessionRows(inTerminal)),
     ...group("Archived", sessionRows(archived.slice(0, archivedLimit)), { tail: archived.length > archivedLimit ? [{ kind: "more" }] : [] }).map((i) => (i.kind === "group" ? { ...i, count: archived.length } : i)),
   ];
-  const size = (i: Item) => (i.kind === "session" ? ROW : i.kind === "archive-old" ? 44 : 34);
+  const size = (i: Item) => (i.kind === "session" ? ROW : i.kind === "archive-old" || i.kind === "archive-automation" ? 44 : 34);
   const key = (i: Item) => (i.kind === "session" ? i.session.id : i.kind === "group" ? `group-${i.title}` : i.kind);
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => size(items[i]), getItemKey: (i) => key(items[i]), overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
@@ -312,12 +314,14 @@ export function AgentsView() {
             return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
               {item.kind === "session" ? row(item.session) : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} detail={item.detail} collapsed={groupCollapsed(item.title)} onToggle={() => toggleListGroup(item.title)} /> :
                 item.kind === "archive-old" ? <div className="flex h-full min-w-0 items-center px-3"><ConfirmButton className="min-w-0 truncate" icon="archive" disabled={archiving} title="Archive seen Done sessions older than 3 days. Archived sessions stay resumable in Archived." consequence={`Archive ${oldDone.length}?`} confirmLabel="Archive" onConfirm={archiveOld}>{archiving ? "Archiving…" : `Archive ${oldDone.length} seen, older than 3 d`}</ConfirmButton></div> :
+                item.kind === "archive-automation" ? <div className="flex h-full min-w-0 items-center px-3"><button className="btn btn-sm min-w-0 truncate" title="Preview the finished routine runs and the threads that routines, channels, DMs, hooks or other agents started, then archive them" onClick={() => setArchiveAutomation(true)}><Icon name="archive" size={12} />Archive automation threads…</button></div> :
                 <button className="px-3 py-2 text-left text-[12px] text-teal-ink hover:underline" onClick={() => setArchivedLimit((n) => n + 50)}>Show more</button>}
             </div>;
           })}
         </div>
         </div>
       </div>
+      {archiveAutomation && scope.workspace.id && <ArchiveAutomationDialog workspace={scope.workspace.id} onClose={() => setArchiveAutomation(false)} />}
       {!phone && column.handle}
       <div className={`min-h-0 min-w-0 flex-1 bg-paper ${phone && !paneOpen ? "hidden" : ""}`}>
         {visibleSession ? (

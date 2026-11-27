@@ -2,6 +2,7 @@
 //! admin actions.
 
 pub mod activity;
+pub mod bulk_archive;
 pub mod channel_trigger;
 pub mod crons;
 pub mod failures;
@@ -71,6 +72,8 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     crons::CronAgent::export_all(cfg)?;
     proposals::Proposal::export_all(cfg)?;
     activity::Activity::export_all(cfg)?;
+    bulk_archive::ArchivePreview::export_all(cfg)?;
+    bulk_archive::ArchiveOutcome::export_all(cfg)?;
     oracles::OracleFile::export_all(cfg)?;
     oracle_eval::Evaluation::export_all(cfg)?;
     oracle_eval::RunResult::export_all(cfg)?;

@@ -51,6 +51,7 @@ import { cronTitle, routineState, triggerSummary } from "@/lib/routines";
 import { NewRoutine, RoutineDetails, RunStrip } from "@/features/schedules/Routines";
 import { useChats } from "@/features/chats/data";
 import { Dialog } from "@/features/chats/Dialog";
+import { ArchiveAutomationDialog } from "@/features/agents/ArchiveAutomation";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { ProposalMode } from "@/gen/ProposalMode";
 import type { LaunchpadAccess } from "@/gen/LaunchpadAccess";
@@ -353,6 +354,7 @@ function BotSettingsOf({ id }: { id: string }) {
   const routines = (useCrons().data ?? []).filter((c) => c.bot_id === id);
   const rows = useThreadRows(bot ?? ({ id } as Bot), sessions);
   const [file, setFile] = useState<string | null>(null);
+  const [archiveAutomation, setArchiveAutomation] = useState(false);
   if (bots.isLoading) return <Loading what="the bot" />;
   if (bots.error) return <ErrorState error={bots.error} onRetry={() => void bots.refetch()} />;
   if (!bot) return <div className="flex h-full flex-col"><PageHeader title="Settings" /><Empty fill icon="spark" action={<Link to="/chats" className="btn btn-sm">All chats</Link>}>This bot no longer exists.</Empty></div>;
@@ -378,6 +380,10 @@ function BotSettingsOf({ id }: { id: string }) {
             <Section title="Avatar and color" tour="bots.identity"><BotIdentity key={`${bot.settings.avatar_seed ?? ""}-${bot.settings.color ?? ""}`} bot={bot} /></Section>
             <Section title="Profile and model" tour="bots.model"><BotModelChoice bot={bot} current={current} /></Section>
             <AboutSections bot={bot} current={current} routines={routines} onEditFile={setFile} openThread={openThread} threadKeys={new Set()} part="side" />
+            <Section title="Automation threads" tour="bots.archive-automation">
+              <p className="m-0 text-[12px] text-ink-3">Finished routine runs of {bot.settings.name} and the threads that channels, DMs, hooks or other agents started, with the chats they handed off to. Preview them, then archive them in one click.</p>
+              <button className="btn btn-sm w-fit" onClick={() => setArchiveAutomation(true)}><Icon name="archive" size={12} />Archive automation threads…</button>
+            </Section>
             <Section title="Delete" tour="bots.delete">
               <p className="m-0 text-[12px] text-ink-3">Deletes {bot.settings.name}, its memory and its routines. Its sessions stay in Agents.</p>
               {running ? <button className="btn btn-sm w-fit" disabled title="Stop its running chats first"><Icon name="trash" size={12} />Delete bot</button>
@@ -388,6 +394,7 @@ function BotSettingsOf({ id }: { id: string }) {
       </div>
     </div>
     {file && <FilesDialog bot={bot} routines={routines} path={file} onPath={setFile} onClose={() => setFile(null)} />}
+    {archiveAutomation && <ArchiveAutomationDialog workspace={bot.workspace_id} bot={{ id: bot.id, name: bot.settings.name }} onClose={() => setArchiveAutomation(false)} />}
   </div>;
 }
 

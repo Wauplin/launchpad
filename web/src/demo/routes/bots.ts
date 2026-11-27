@@ -240,3 +240,30 @@ function sendBotMessage({ params, body }: { params: Record<string, string>; body
     bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", thread: threadId, version: botVersion(b.instructions), reason: reason ?? "first", permission_mode: b.settings.permission_mode, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
   return launch(spec, undefined, b.slug === "ask-launchpad" ? pickReply(text, true) : undefined);
 }
+
+// Archive automation threads: the demo's Done bot threads that a routine, channel, hook or agent started (Home's
+// `bulk_archive`, without the waiting-work checks the demo has no records for).
+const automationKey = (k: string | null) => /^(routine|channel|agent|hook):/.test(k ?? "");
+function archivable(workspace: string | null, bot: string | null) {
+  const now = clock.now();
+  return world.bots.filter((b) => b.workspace_id === workspace && (!bot || b.id === bot || b.slug === bot || b.settings.name === bot)).flatMap((b) => threadsOf(b.id).filter((t) => t.archived_at == null && automationKey(t.key)).flatMap((t) => {
+    const s = thread(b.id, t.id).at(-1);
+    if (!s || s.status !== "waiting" || s.open_question || s.sleep || now - s.status_since < 60_000) return [];
+    return [{ session_id: s.id, bot_id: b.id, bot_name: b.settings.name, thread_id: t.id, title: t.title, origin: (t.key ?? "").split(":")[0], state: s.seen_at < s.status_since ? "unread" : "done", done_at: s.status_since }];
+  }));
+}
+route("GET", "/api/context/archive-done", ({ query }) => {
+  const items = archivable(query.get("workspace"), query.get("bot"));
+  return { workspace_id: query.get("workspace") ?? "", count: items.length, items, kept: [] };
+});
+route("POST", "/api/workspaces/:workspace/archive-done", ({ params, body }) => {
+  const ids = new Set((body as { session_ids?: string[] })?.session_ids ?? []);
+  const archived = archivable(params.workspace, (body as { bot?: string })?.bot ?? null).filter((i) => ids.has(i.session_id));
+  for (const i of archived) {
+    setStatus(i.session_id, "closed");
+    const t = threadsOf(i.bot_id).find((x) => x.id === i.thread_id);
+    if (t) t.archived_at = clock.now();
+    threadsChanged(i.bot_id);
+  }
+  return { title: `Archived ${archived.length} automation thread${archived.length === 1 ? "" : "s"}`, archived, kept: [], failed: [] };
+});

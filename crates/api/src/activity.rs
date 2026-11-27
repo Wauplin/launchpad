@@ -6,6 +6,7 @@ use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use launchpad_automation::activity::{self, Activity, Record};
+use launchpad_automation::bulk_archive;
 use serde::Deserialize;
 
 use crate::Ctx;
@@ -15,6 +16,36 @@ pub fn router() -> Router<Ctx> {
     Router::new()
         .route("/api/activity", get(list).post(record))
         .route("/api/activity/{id}/undone", post(undone))
+        .route("/api/context/archive-done", get(archive_preview))
+        .route("/api/workspaces/{workspace}/archive-done", post(archive_done))
+}
+
+#[derive(Deserialize)]
+struct ArchiveQuery {
+    workspace: Option<String>,
+    bot: Option<String>,
+    older_than: Option<String>,
+}
+
+/// Archive automation threads, the preview: what `session.archive-done` would archive now (changes nothing).
+async fn archive_preview(State(s): State<Ctx>, Query(q): Query<ArchiveQuery>) -> ApiResult<bulk_archive::ArchivePreview> {
+    let bad = |e: anyhow::Error| ApiError::bad_request(format!("{e:#}"));
+    let ws = bulk_archive::workspace_id(&s.app, q.workspace.as_deref().unwrap_or_default()).await.map_err(bad)?;
+    Ok(Json(bulk_archive::preview(&s.app, &ws, &bulk_archive::Filter { bot: q.bot, older_than: q.older_than }).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct ArchiveDone {
+    session_ids: Vec<String>,
+    #[serde(flatten)]
+    filter: bulk_archive::Filter,
+}
+
+/// `session.archive-done`: archives the sessions of a confirmed preview that are still eligible.
+async fn archive_done(State(s): State<Ctx>, Path(workspace): Path<String>, Json(b): Json<ArchiveDone>) -> ApiResult<bulk_archive::ArchiveOutcome> {
+    let bad = |e: anyhow::Error| ApiError::bad_request(format!("{e:#}"));
+    let ws = bulk_archive::workspace_id(&s.app, &workspace).await.map_err(bad)?;
+    Ok(Json(bulk_archive::apply(&s.app, &ws, &b.filter, &b.session_ids).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]

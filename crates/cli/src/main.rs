@@ -230,7 +230,7 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
-    /// Agent sessions (JSON): `list` or `show <id>`.
+    /// Agent sessions (JSON): `list`, `show <id>`, or `archive-done` (Archive automation threads: a preview, `--apply` archives).
     Sessions {
         #[command(subcommand)]
         command: Sessions,
@@ -554,6 +554,101 @@ enum Sessions {
         workspace: Option<String>,
     },
     Show { session_id: String },
+    /// Archive automation threads: lists the finished automation threads of a workspace that would be archived
+    /// (routine runs, bot threads started by a routine, channel, DM, hook or another agent, and the threads they
+    /// handed off to; only Done with nothing waiting for the owner), with their count. Changes nothing unless
+    /// `--apply` is given: then it archives exactly the listed ones that are still eligible (traces stay; Unarchive
+    /// brings each one back).
+    ArchiveDone {
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Only conversations a thread of this bot (ID, slug or name) is part of.
+        #[arg(long)]
+        bot: Option<String>,
+        /// Only threads Done for at least this long (45m, 2h, 3d).
+        #[arg(long)]
+        older_than: Option<String>,
+        /// Archive the listed threads (without it: a preview only).
+        #[arg(long)]
+        apply: bool,
+        /// Print the answer as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// How long ago a Unix ms time was: `5m ago`, `3h ago`, `2d ago`.
+fn ago(t: i64) -> String {
+    let m = (launchpad_core::util::now_ms() - t).max(0) / 60_000;
+    match m {
+        0..60 => format!("{m}m ago"),
+        60..1440 => format!("{}h ago", m / 60),
+        _ => format!("{}d ago", m / 1440),
+    }
+}
+
+/// `launchpad sessions archive-done`: the preview, then with `apply` the archive of exactly the previewed sessions
+/// (`session.archive-done`, which checks each one again on Home).
+async fn archive_done(paths: &Paths, workspace: Option<String>, bot: Option<String>, older_than: Option<String>, apply: bool, json: bool) -> Result<()> {
+    let client = Client::new(paths)?;
+    let mut pairs: Vec<(&str, &str)> = vec![];
+    for (k, v) in [("workspace", &workspace), ("bot", &bot), ("older_than", &older_than)] {
+        if let Some(v) = v.as_deref() {
+            pairs.push((k, v));
+        }
+    }
+    let preview = client.json("GET", &query("/api/context/archive-done", &pairs), None).await?;
+    let items = preview["items"].as_array().cloned().unwrap_or_default();
+    let line = |v: &serde_json::Value| {
+        let bot = v["bot_name"].as_str().map(|b| format!("{b} · ")).unwrap_or_default();
+        let ago = v["done_at"].as_i64().map(ago).unwrap_or_default();
+        format!("{bot}{} [{} · {} · Done {ago}] {}", v["title"].as_str().unwrap_or(""), v["origin"].as_str().unwrap_or(""), v["state"].as_str().unwrap_or(""), v["session_id"].as_str().unwrap_or(""))
+    };
+    if !apply {
+        if json {
+            println!("{}", serde_json::to_string_pretty(&preview)?);
+            return Ok(());
+        }
+        println!("{} automation thread{} would be archived:", items.len(), if items.len() == 1 { "" } else { "s" });
+        for v in &items {
+            println!("  {}", line(v));
+        }
+        let kept = preview["kept"].as_array().cloned().unwrap_or_default();
+        if !kept.is_empty() {
+            println!("{} automation thread{} stay:", kept.len(), if kept.len() == 1 { "" } else { "s" });
+            for v in &kept {
+                let bot = v["bot_name"].as_str().map(|b| format!("{b} · ")).unwrap_or_default();
+                println!("  {bot}{}: {}", v["title"].as_str().unwrap_or(""), v["reason"].as_str().unwrap_or(""));
+            }
+        }
+        if !items.is_empty() {
+            println!("Nothing changed. Run again with --apply to archive these {}.", items.len());
+        }
+        return Ok(());
+    }
+    if items.is_empty() {
+        println!("Nothing to archive.");
+        return Ok(());
+    }
+    let ws = preview["workspace_id"].as_str().context("the preview names no workspace")?;
+    let ids: Vec<&serde_json::Value> = items.iter().map(|v| &v["session_id"]).collect();
+    let body = serde_json::json!({"session_ids": ids, "bot": bot, "older_than": older_than});
+    let out = client.json("POST", &format!("/api/workspaces/{}/archive-done", url_segment(ws)), Some(body)).await?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&out)?);
+        return Ok(());
+    }
+    println!("{}.", out["title"].as_str().unwrap_or("Archived"));
+    for (what, key) in [("Kept (changed since the preview)", "kept"), ("Uncertain (check by hand, not retried)", "failed")] {
+        let list = out[key].as_array().cloned().unwrap_or_default();
+        if !list.is_empty() {
+            println!("{what}:");
+            for v in &list {
+                println!("  {}: {}", v["title"].as_str().unwrap_or(""), v["reason"].as_str().unwrap_or(""));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Read-only context commands: GET `/api/context/<what>`.
@@ -1536,6 +1631,7 @@ async fn run() -> Result<()> {
         Command::Schedules { command: ListOnly::List { workspace } } => context_command(&paths, "schedules", workspace).await,
         Command::Sessions { command: Sessions::List { workspace } } => context_command(&paths, "sessions", workspace).await,
         Command::Sessions { command: Sessions::Show { session_id } } => context_command(&paths, &format!("sessions/{}", url_segment(&session_id)), None).await,
+        Command::Sessions { command: Sessions::ArchiveDone { workspace, bot, older_than, apply, json } } => archive_done(&paths, workspace, bot, older_than, apply, json).await,
         Command::Proposals { command: ListOnly::List { workspace } } => {
             let path = match workspace { Some(w) => query("/api/proposals", &[("workspace", &w)]), None => "/api/proposals".into() };
             let proposals = Client::new(&paths)?.json("GET", &path, None).await?;
