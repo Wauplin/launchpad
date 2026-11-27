@@ -1926,6 +1926,7 @@ dependencies = [
  "launchpad-github",
  "launchpad-harness",
  "launchpad-http",
+ "launchpad-recall",
  "launchpad-server",
  "launchpad-setup",
  "libc",
@@ -1951,6 +1952,7 @@ dependencies = [
  "launchpad-core",
  "launchpad-github",
  "launchpad-http",
+ "launchpad-recall",
  "launchpad-setup",
  "mime_guess",
  "reqwest",
@@ -2101,6 +2103,20 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "launchpad-recall"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "launchpad-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
  "tracing",
 ]
 

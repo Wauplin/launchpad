@@ -25,7 +25,7 @@ LAUNCHPAD_ENV=dev cargo run -p launchpad -- url                          # a lin
 - Isolated daemon: set `HOME` to a scratch folder and `LAUNCHPAD_PORT` to a free port.
 - Demo mode needs no daemon data: open `/?demo=1` on any running UI.
 
-Home runs three programs: `monty` (the Monty worker) and `ruff` for oracles, and `slackline` for agents' `launchpad slack` calls. A dev Home finds them on its `PATH`, or at the paths in `LAUNCHPAD_MONTY`, `LAUNCHPAD_RUFF` and `LAUNCHPAD_SLACKLINE`. Use the versions pinned in `deploy/hf-home/release.json`:
+Home runs three programs: `monty` (the Monty worker) and `ruff` for oracles, and `slackline` for agents' `launchpad slack` calls. Recall, when it is on, also runs `funes` (`LAUNCHPAD_FUNES`, else `PATH`; built from huggingface/funes at the commit pinned in `release.json`) with model snapshots in the Hugging Face cache that `LAUNCHPAD_FUNES_HF_HOME` names (default `<data>/recall/hf`); without them recall answers that it is not available. A dev Home finds them on its `PATH`, or at the paths in `LAUNCHPAD_MONTY`, `LAUNCHPAD_RUFF` and `LAUNCHPAD_SLACKLINE`. Use the versions pinned in `deploy/hf-home/release.json`:
 
 ```sh
 uv tool install pydantic-monty-runtime==1.6.0     # prebuilt monty; or: cargo +1.98.0 install monty-runtime --version 1.6.0 --locked

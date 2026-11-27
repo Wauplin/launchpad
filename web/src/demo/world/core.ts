@@ -42,7 +42,7 @@ export function coreWorld() {
       { id: "codex-plus", name: "Codex · Plus", harness: "codex", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], login: null },
       { id: "opencode-router", name: "OpenCode · HF router", harness: "opencode", env: { OPENAI_API_KEY: "${HF_TOKEN}" }, model: "open-labs/open-coder-70b", effort: null, billing: "pay_as_you_go", budget_usd: null, models_url: "https://router.example.com/v1/models", spend_limits: [{ usd: 5, hours: 24 }], login: null },
     ],
-    home: { backup: "", git_name: "", git_email: "", burst: { enabled: true, monthly_cap_usd: 20, flavor: "cpu-basic" }, cli_updates: {}, time_zone: "" },
+    home: { backup: "", git_name: "", git_email: "", burst: { enabled: true, monthly_cap_usd: 20, flavor: "cpu-basic" }, cli_updates: {}, time_zone: "", recall: { enabled: false, include_archived: false, hidden: [], backfill: [] } },
     runner: { boundary: "jail" },
     // Exit routes: Acme's GitHub organization accepts only allow-listed addresses, which the laptop has; an internal
     // dashboard is reachable only from the desktop, which is off.

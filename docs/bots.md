@@ -72,6 +72,8 @@ Such an agent goes once it has been Done for a minute, with its work saved on Ho
 
 `[tools]` in `bot.toml` sets the bot's [default tools](home-and-runners.md#default-tools) over those of its workspace and folder (settings → Access → **Edit** → **Default tools**). [Slack profiles](slack.md) are the exception: a bot gets one only from its own `"slack:<handle>" = true` (also set from Settings → Slack) or from the profile's own default, never from its workspace or folder, and only the owner switches one on.
 
+`recall = true` in `bot.toml` lets the bot search the past sessions of its workspace with `launchpad recall` ([Recall](recall.md)) and tells its new sessions when to use it: to look up prior context, never as an authority. It is off by default, needs recall on for Home, and an admin session may set it (`launchpad bot update <bot-id> --body-file f.json` with `{"set": {"recall": true}}`).
+
 `proposals` in `bot.toml` sets the bot's proposal mode: `manual` (the default: every card waits for your click) or `auto` (new launches, messages and schedules apply at once; crons, presets, bots, tools, bot file changes (`BOT.md` and routines), oracles, channels and join requests, ready clicks and messages to a session with admin access still wait). Cards started in auto mode are automatic work and need confirmed quota (see [Quota protection](agents.md#quota-protection-and-costs)). A launch waits for the quota before it starts. A message card without confirmed quota stays proposed: its note says why, and **Start** sends it.
 
 ## Create a bot

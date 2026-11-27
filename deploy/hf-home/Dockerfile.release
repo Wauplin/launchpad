@@ -17,11 +17,14 @@ RUN set -eu; base="https://github.com/Wauplin/launchpad/releases/download/${LAUN
     sha256sum -c "${LAUNCHPAD_PACKAGE}.tar.gz.sha256"; \
     mkdir pkg && tar xzf "${LAUNCHPAD_PACKAGE}.tar.gz" -C pkg; \
     install -m 0755 pkg/target/release/launchpad /launchpad; commit="$(cat pkg/COMMIT)"; \
+    install -m 0755 pkg/target/release/funes /funes; \
     mkdir /src && curl -fsSL "https://codeload.github.com/Wauplin/launchpad/tar.gz/${commit}" | tar xz -C /src --strip-components=1; \
     /launchpad help >/dev/null
 
 FROM node:24.14.1-bookworm-slim
 COPY --from=release /launchpad /usr/local/bin/launchpad
+# Funes (recall, launchpad_recall): built by CI at the commit pinned in release.json and shipped in the package.
+COPY --from=release /funes /usr/local/bin/funes
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv git openssh-client ca-certificates curl tini && rm -rf /var/lib/apt/lists/*
 COPY --from=release /src/deploy/hf-home/release.json /opt/home/release.json
 COPY --from=release /src/deploy/hf-home/install_tools.py /opt/home/install_tools.py
@@ -38,8 +41,11 @@ RUN chown user /etc/ssl/certs/ca-certificates.crt
 COPY --from=release /src/deploy/hf-home/gateway/__init__.py /src/deploy/hf-home/gateway/proxy.py /opt/home/gateway/
 COPY --from=release /src/deploy/hf-home/main.py /src/deploy/hf-home/onboarding.py /src/deploy/hf-home/setup.html /src/deploy/hf-home/install-runner.sh /opt/home/
 ENV PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/user
+# Recall: where Home finds funes' model weights (install_tools.py). Home sets HF_HOME, HF_HUB_CACHE, HF_HUB_OFFLINE and
+# DO_NOT_TRACK on the funes process itself, never here: Home's own HF login lives in another HF_HOME (main.py).
+ENV LAUNCHPAD_FUNES_HF_HOME=/opt/funes/hf
 WORKDIR /opt/home
 USER user
-RUN claude --version && codex --version && opencode --version && gh --version && hf version && uvx --version && monty --version && ruff --version && slackline --version && cargo clippy --version && pnpm --version && jq --version && chromium --version
+RUN claude --version && codex --version && opencode --version && gh --version && hf version && uvx --version && monty --version && ruff --version && slackline --version && DO_NOT_TRACK=1 funes --version && test -f /opt/funes/hf/hub/models--BAAI--bge-small-en-v1.5/snapshots/*/model.safetensors && cargo clippy --version && pnpm --version && jq --version && chromium --version
 EXPOSE 7860
 ENTRYPOINT ["/usr/bin/tini", "--", "python", "main.py"]

@@ -1,5 +1,5 @@
 // Settings → Home and runners (Home): the runners (machines that run agents), with Approve for a pairing request,
-// Remove, and the command that installs and pairs a new one, then Burst and agent CLI updates. A runner's own window shows only its status
+// Remove, and the command that installs and pairs a new one, then Burst, agent CLI updates and Recall. A runner's own window shows only its status
 // (features/runner).
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,6 +25,7 @@ import { networkDiffers, RunnerNetwork } from "./RunnerNetwork";
 import { HomeUpdateCard } from "./HomeUpdateCard";
 import { CliUpdatesCard } from "./CliUpdates";
 import { ExitRoutesCard } from "./ExitRoutes";
+import { RecallCard } from "./RecallCard";
 
 export function RunnersView() {
   return <HomeRunners />;
@@ -169,6 +170,7 @@ function HomeRunners() {
           <ExitRoutesCard />
           <BurstCard />
           <CliUpdatesCard />
+          <RecallCard />
         </>
       )}
       <HomeUpdateCard bottom />

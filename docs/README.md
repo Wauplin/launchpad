@@ -13,6 +13,7 @@
 - [Knowledge](knowledge.md): the knowledge base of each workspace, the memory agents share.
 - [Bots](bots.md): persistent agents with parallel threads, their instructions in `BOT.md` and their notes in the knowledge base.
 - [Folios](folios.md): reports, plans, audits and sketchbooks that agents write as Markdown with typed blocks, which Launchpad renders and keeps, and where you comment, decide and send feedback.
+- [Recall](recall.md): the search index over a workspace's past sessions (Funes), `launchpad recall`, backfill and rebuild.
 - [Oracles](oracles.md): small Python checks that Home runs to answer True, False or Failed, the gates of routines, their Today row and the `launchpad oracle` CLI.
 - [Bot channels and DMs](channels.md): channels and DMs where the bots of a workspace talk to each other, with you in every one, and the loop guard that stops them.
 - [Connections and the Outbox](connections.md): a Telegram chat per workspace, outgoing webhooks whose drafts wait in Today, and incoming hooks.

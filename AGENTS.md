@@ -6,7 +6,7 @@ Launchpad is a personal web app (a PWA; the daemon and runners on Linux) with on
 
 ## Where things are
 
-- `crates/` (layout in [docs/architecture.md](docs/architecture.md#code-layout)): `core` (domain, harness contract, action list `actions.rs`, Today `today.rs`, exit routes `egress.rs`), `harness` (adapters), `channels` (connections, Telegram, hooks, bot channels), `github` (Suggestions, ledger, extension context, notes), `automation` (routines, schedules, proposals, activity, oracles, folios), `setup`, `http`, `api` (JSON routes), `server` (auth, runner tunnel, WebSockets, embedded UI), `cli` (the `launchpad` binary, `extensions.rs` connects the crates).
+- `crates/` (layout in [docs/architecture.md](docs/architecture.md#code-layout)): `core` (domain, harness contract, action list `actions.rs`, Today `today.rs`, exit routes `egress.rs`), `harness` (adapters), `channels` (connections, Telegram, hooks, bot channels), `github` (Suggestions, ledger, extension context, notes), `automation` (routines, schedules, proposals, activity, oracles, folios), `recall` (the Funes search index over past sessions), `setup`, `http`, `api` (JSON routes), `server` (auth, runner tunnel, WebSockets, embedded UI), `cli` (the `launchpad` binary, `extensions.rs` connects the crates).
 - `web/`: React app (`web/src/features/<feature>/`, shared UI in `web/src/components/ui.tsx`, phone shell `web/src/mobile/`, demo `web/src/demo/`). `extension/`: Chrome extension. `desktop/`: Linux desktop companion (own Cargo workspace). `deploy/hf-home/`: Home on a Hugging Face Space. `packaging/`: installers. `skills/launchpad/SKILL.md`: the agent skill for the CLI.
 - `docs/`: user documentation by feature, plus `architecture.md`, `development.md`, `harness-adapters.md`, `glossary.md` and `invariants/`. `.claude/skills/implement-review-docs/`: the skill for plans with several steps.
 
@@ -78,6 +78,7 @@ Before changing an area, read its page (index: [docs/invariants/README.md](docs/
 - Connections, Outbox, Telegram, hooks: [docs/invariants/connections.md](docs/invariants/connections.md)
 - Ask Launchpad, Launchpad CLI access levels, proposals: [docs/invariants/proposals.md](docs/invariants/proposals.md)
 - Oracles and routine gates: [docs/invariants/oracles.md](docs/invariants/oracles.md)
+- Recall (the derived search index over past sessions): [docs/invariants/recall.md](docs/invariants/recall.md)
 - Folios: [docs/invariants/folios.md](docs/invariants/folios.md)
 - Desktop companion: [docs/invariants/desktop.md](docs/invariants/desktop.md)
 - Terminals: [docs/invariants/terminals.md](docs/invariants/terminals.md)

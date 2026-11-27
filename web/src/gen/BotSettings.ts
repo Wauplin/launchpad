@@ -49,4 +49,9 @@ avatar_seed?: string,
 /**
  * Its identity color, one of `IDENTITY_COLORS` (never a hex code). None: picked from its name.
  */
-color?: string, };
+color?: string, 
+/**
+ * Recall: its sessions may search the workspace's past sessions with `launchpad recall` (derived evidence, never
+ * an authority), and are told when to. Off by default; needs recall on for Home (Settings → Recall).
+ */
+recall?: boolean, };

@@ -50,6 +50,12 @@ git_name = ""                       # Home only: the author of agents' commits o
 git_email = ""
 time_zone = ""                      # IANA zone (Europe/Paris) of routines saved without a browser and of the 08:00 channel digests; empty: the server's (UTC on a Space)
 
+[home.recall]
+enabled = false                     # Home only: recall, the search index over past sessions (docs/recall.md); off by default
+include_archived = false            # also index archived sessions (off: archiving hides a session from recall)
+hidden = []                         # session IDs never returned, and left out by the next rebuild
+backfill = []                       # workspace IDs whose whole history stays indexed (set by `launchpad recall backfill`)
+
 [runner]
 boundary = "jail"                   # runner only: jail (bubblewrap), or vm inside a dedicated Local VM, where agents may use Docker
 ```

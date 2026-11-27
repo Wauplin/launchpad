@@ -266,6 +266,17 @@ route("PUT", "/api/tool-defaults/:scope/:id", ({ params, body }) => {
   return { tools };
 });
 route("GET", "/api/burst", () => ({ config: world.config.home.burst, unavailable: null, month_usd: 0.01, runs: world.burstRuns }));
+// Recall: off in the demo; switching it on shows an index of the demo workspace.
+route("GET", "/api/recall/config", () => world.config.home.recall);
+route("PATCH", "/api/recall/config", ({ body }) => Object.assign(world.config.home.recall, body));
+route("GET", "/api/recall/:workspace/status", () => ({
+  available: true, problem: null, kept_indexed: true, backfill_running: false,
+  sessions: { total: 42, up_to_date: 37, to_index: 0, running: 2, left_out: { archived: 3 } },
+  index: { sessions: 37, turns: 1840, blocks_truncated: 12, sessions_failed: 0, newest_turn: "today", size_bytes: 18_400_000 },
+  backfill: { state: "done", counts: { sessions_seen: 42, sessions_indexed: 37, turns_indexed: 1840, sessions_failed: 0 } },
+}));
+route("POST", "/api/recall/:workspace/backfill", notInDemo);
+route("POST", "/api/recall/:workspace/rebuild", notInDemo);
 route("GET", "/api/vault/tools.toml", () => ({ toml: "[[tools]]\nid = \"gh\"\n" }));
 route("PUT", "/api/vault/entries/:id", notInDemo);
 route("POST", "/api/vault/entries/:id/from-home", notInDemo);

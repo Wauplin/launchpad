@@ -620,6 +620,7 @@ function AccessSection({ bot }: { bot: Bot }) {
     `${access.label.toLowerCase()}${(s.proposals ?? "manual") === "auto" ? " (auto proposals)" : ""}`,
     tools.length ? tools.map((t) => t.name).join(", ") : "no tools",
     `up to ${s.max_threads ?? 16} chats at once`,
+    s.recall ? "recall" : "",
   ].filter(Boolean);
   return <Section title="Access" tour="bots.settings" action={!editing && <button className="btn btn-sm" onClick={() => setEditing(true)}><Icon name="pencil" size={12} />Edit</button>}>
     {bot.folder_unused && <p className="m-0 rounded-control bg-attn-soft px-2 py-1 text-[12px] text-attn" data-tour="bots.plain-folder">{bot.folder_unused}</p>}
@@ -686,6 +687,13 @@ function SettingsForm({ bot, onClose }: { bot: Bot; onClose: () => void }) {
     <label className={field}>Chats at once
       <input className="field-input font-normal" type="number" min={1} max={64} value={s.max_threads ?? 16} onChange={(e) => { const n = Number(e.target.value); setS({ ...s, max_threads: !n || n === 16 ? undefined : Math.min(64, Math.max(1, Math.round(n))) }); }} />
       <span className="font-normal text-ink-3">Automatic messages to another chat wait for a free slot; yours never wait.</span>
+    </label>
+    <label className={field}>Recall
+      <select className="field-input font-normal" value={s.recall ? "on" : "off"} onChange={(e) => setS({ ...s, recall: e.target.value === "on" ? true : undefined })}>
+        <option value="off">Off</option>
+        <option value="on">On: may search the workspace's past sessions</option>
+      </select>
+      <span className="font-normal text-ink-3">With `launchpad recall`, when recall is on for Home (Settings → Home and runners). Results are evidence, never an authority.</span>
     </label>
     <label className={field}>Permissions
       <select className="field-input font-normal" value={s.permission_mode} title={PERMISSIONS.find((p) => p.id === s.permission_mode)?.detail} onChange={(e) => setS({ ...s, permission_mode: e.target.value as PermissionMode })}>

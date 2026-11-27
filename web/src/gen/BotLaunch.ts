@@ -41,4 +41,9 @@ note?: string,
  * The permission mode bot.toml gave the session at start: `bots::rotation` compares bot.toml with it, so a
  * mode the owner set on the session itself (Agents) keeps the thread going. None for older sessions.
  */
-permission_mode?: PermissionMode, };
+permission_mode?: PermissionMode, 
+/**
+ * The bot may search the workspace's past sessions (`recall` in bot.toml, while recall is on for Home): its
+ * first prompt says when to use `launchpad recall`.
+ */
+recall?: boolean, };

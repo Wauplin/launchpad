@@ -13,9 +13,11 @@ impl launchpad_core::ext::Extensions for Extensions {
     fn turn_ended(&self, app: &App, session: &Session) {
         crons::turn_ended(app, session);
         launchpad_channels::conversation::turn_ended(app, session);
+        launchpad_recall::turn_finished(app, session);
     }
     fn turn_saved(&self, app: &App, session: &Session) {
         crons::turn_saved(app, session);
+        launchpad_recall::turn_finished(app, session);
     }
     fn woken(&self, app: &App, session_id: &str, schedule_id: &str) {
         launchpad_automation::schedules::woken(app, session_id, schedule_id);
@@ -88,6 +90,7 @@ pub async fn start(app: &App) -> Result<()> {
     launchpad_github::ledger::resume_checks(app);
     launchpad_setup::home_update::spawn(app);
     launchpad_setup::cli_update::spawn(app);
+    launchpad_recall::spawn(app);
     Ok(())
 }
 

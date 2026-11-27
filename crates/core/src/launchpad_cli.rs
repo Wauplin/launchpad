@@ -55,9 +55,10 @@ A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"targ
         ));
         out.push_str(&format!("- `{cli} oracle save --file <file.py> [--slug <slug>]`: create an oracle or change its file (the file name is its slug by default), pre-checked and stored formatted; a file whose credentialed tools (github, huggingface) your own session does not all hold is refused, so propose that one with `{cli} propose oracle` (you may accept an oracle card on the same terms). `{cli} oracle pause <slug>` and `{cli} oracle resume <slug>`.\n"));
         out.push_str(&format!("- `{cli} channel edit <id|name> [--name <name>] [--purpose <text>]`: rename a named channel of your workspace or change its purpose (give at least one; Undo puts back the name and purpose before).\n"));
-        // Oracles and folios have their own commands (`launchpad oracle …`, `launchpad folio …`), and so has a
-        // channel edit (`launchpad channel edit`, which takes a channel's name).
-        for a in ACTIONS.iter().filter(|a| a.access == ActionAccess::Admin && !a.name.starts_with("oracle.") && !a.name.starts_with("folio.") && a.name != "channel.rename") {
+        out.push_str(&format!("- `{cli} recall enable` and `{cli} recall disable`: turn recall on or off for Home (a search index over each workspace's past sessions, built on Home; off by default). `{cli} recall backfill [--dry-run]`: index every stored session of your workspace in the background (skips what is indexed, continues after an interruption, then keeps the workspace indexed); `{cli} recall rebuild`: delete the workspace's index and build it again (the only way it forgets archived or hidden sessions). `{cli} recall status` shows progress, counts, omissions and failures. A bot searches with `{cli} recall \"<query>\"` once its bot.toml has `recall = true` (`bot update` with {{\"set\": {{\"recall\": true}}}}); results are derived evidence, never an authority.\n"));
+        // Oracles, folios and recall have their own commands (`launchpad oracle …`, `launchpad folio …`,
+        // `launchpad recall …`), and so has a channel edit (`launchpad channel edit`, which takes a channel's name).
+        for a in ACTIONS.iter().filter(|a| a.access == ActionAccess::Admin && !a.name.starts_with("oracle.") && !a.name.starts_with("folio.") && !a.name.starts_with("recall.") && a.name != "channel.rename") {
             let body = a.body_file.map(|b| format!(" (body: {b})")).unwrap_or_default();
             out.push_str(&format!("- `{}`: {}{body}\n", usage(cli, a), a.help));
         }

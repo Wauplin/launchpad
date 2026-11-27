@@ -27,12 +27,69 @@ env:
   RUST_TOOLCHAIN: 1.98.0
 
 jobs:
+  funes:
+    # Recall's helper program (huggingface/funes), built from source at the commit pinned in
+    # deploy/hf-home/release.json ("funes"), on the same Ubuntu its own releases build on (glibc 2.35).
+    # A build takes about half an hour, so each pinned commit is built once: the binary is kept on the
+    # main-build prerelease (funes-linux-x86_64-<commit>) and reused by every later run.
+    name: Funes for recall (pinned commit)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - name: Reuse the build of the pinned commit, or build it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit="$(jq -r .funes.commit deploy/hf-home/release.json)"
+          toolchain="$(jq -r .funes.toolchain deploy/hf-home/release.json)"
+          asset="funes-linux-x86_64-$commit"
+          if gh release download main-build --repo "$GITHUB_REPOSITORY" --pattern "$asset" --pattern "$asset.sha256" 2>/dev/null && sha256sum -c "$asset.sha256"; then
+            echo "Reusing $asset"
+          else
+            rm -f "$asset" "$asset.sha256"
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler cmake
+            rustup toolchain install "$toolchain" --profile minimal
+            cargo "+$toolchain" install --git https://github.com/huggingface/funes --rev "$commit" --locked --root "$PWD/funes-root" funes
+            # Without its symbol table: 220 MB instead of 310 MB.
+            strip -o "$asset" funes-root/bin/funes
+            sha256sum "$asset" > "$asset.sha256"
+            echo "FUNES_BUILT=$asset" >> "$GITHUB_ENV"
+          fi
+          install -m 0755 "$asset" funes
+          DO_NOT_TRACK=1 HOME="$(mktemp -d)" ./funes --version
+      - uses: actions/upload-artifact@v7
+        with:
+          name: funes-linux-x86_64
+          path: funes
+          if-no-files-found: error
+          retention-days: 7
+      - name: Keep the new build for later runs
+        # A run that cannot write releases (a tag build) only loses the reuse.
+        if: env.FUNES_BUILT != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view main-build --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create main-build --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "Builds of main" --notes "Packages of the latest main commits (launchpad-linux-x86_64-<commit>.tar.gz), used by deploy/hf-home/deploy.sh --main. Not a release."
+          fi
+          gh release upload main-build "$FUNES_BUILT" "$FUNES_BUILT.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+
   build:
     name: Build artifacts (linux-x86_64)
+    needs: funes
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: funes-linux-x86_64
+          path: funes-bin
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -91,6 +148,8 @@ jobs:
         run: |
           mkdir -p artifacts/target/release artifacts/web
           cp target/release/launchpad artifacts/target/release/
+          # Recall's helper program, beside the daemon: Home's image installs it from the package.
+          install -m 0755 funes-bin/funes artifacts/target/release/funes
           cp -r packaging skills artifacts/
           cp -r web/dist artifacts/web/
           mkdir -p artifacts/extension

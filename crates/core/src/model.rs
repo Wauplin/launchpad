@@ -882,6 +882,11 @@ pub struct BotLaunch {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<PermissionMode>")]
     pub permission_mode: Option<PermissionMode>,
+    /// The bot may search the workspace's past sessions (`recall` in bot.toml, while recall is on for Home): its
+    /// first prompt says when to use `launchpad recall`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub recall: bool,
 }
 
 impl BotLaunch {

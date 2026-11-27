@@ -161,7 +161,7 @@ async fn paused(paths: &Paths, workspace: Option<String>, slug: &str, verb: &str
 }
 
 /// The client and the workspace: `--workspace`, else the workspace of this session (`LAUNCHPAD_SESSION_ID`).
-async fn scoped(paths: &Paths, workspace: Option<String>) -> Result<(Client, String)> {
+pub(crate) async fn scoped(paths: &Paths, workspace: Option<String>) -> Result<(Client, String)> {
     let client = Client::new(paths)?;
     let ws = workspace_of(&client, workspace).await?;
     Ok((client, ws))

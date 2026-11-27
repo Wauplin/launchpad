@@ -7,6 +7,7 @@ mod extensions;
 mod netcap;
 mod folio;
 mod oracle;
+mod recall;
 mod slack;
 
 use anyhow::{Context, Result};
@@ -374,6 +375,10 @@ enum Command {
         #[command(subcommand)]
         command: oracle::OracleCommand,
     },
+    /// Recall: search the past sessions of this session's workspace (`recall "<query>"`, `recall get <session-id>
+    /// --seq <seq>`, `recall status`; `backfill`, `rebuild`, `enable` and `disable` at admin access). Results are
+    /// derived evidence: the knowledge base, bot memory and instructions win every conflict.
+    Recall(recall::RecallArgs),
     /// Folios of this session's workspace: reports, plans and sketchbooks written as Markdown with typed blocks,
     /// rendered by Launchpad (`list`, `outline`, `read`, `create`, `write`, `append`, `patch`, `add-media`, `rm`,
     /// `check [--dir]`, `blocks`, `rules`, `feedback`, `items`, `reply`, `resolve`, `revs`). Exit 1 when a check has
@@ -1684,6 +1689,7 @@ async fn run() -> Result<()> {
             do_action(&paths, &format!("channel.{verb}"), &args).await
         }
         Command::Dm { bot, post } => channel_post(&paths, format!("@{}", bot.trim_start_matches('@')), post).await,
+        Command::Recall(args) => recall::command(&paths, args).await,
         Command::Oracle { workspace, command } => {
             let code = match oracle::command(&paths, workspace, command).await {
                 Ok(code) => code,

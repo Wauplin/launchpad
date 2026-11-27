@@ -17,6 +17,7 @@ mod items;
 mod kb_http;
 mod mcp;
 mod oracles;
+mod recall;
 mod predrafts;
 mod prompt_context;
 mod proposals;
@@ -58,6 +59,7 @@ pub fn router() -> Router<Ctx> {
         .merge(diagnostics::router())
         .merge(ext::router())
         .merge(oracles::router())
+        .merge(recall::router())
         .merge(folios::router())
         .merge(egress::router())
         .merge(slack::router())

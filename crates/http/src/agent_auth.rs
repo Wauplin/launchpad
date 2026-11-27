@@ -28,7 +28,7 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Read)
     } else if method == Method::POST && (path == "/api/proposals" || path == CHANNEL_POST || path == CHANNEL_CANCEL || path == CHANNEL_UPLOAD || path == CI_APPROVE) {
         Some(LaunchpadAccess::Propose)
-    } else if oracle_read(method, path) {
+    } else if oracle_read(method, path) || recall_read(method, path) {
         Some(LaunchpadAccess::Read)
     } else if oracle_test(method, path) || bot_publish(method, path).is_some() {
         Some(LaunchpadAccess::Propose)
@@ -73,6 +73,14 @@ fn oracle_read(method: &Method, path: &str) -> bool {
         return false;
     }
     *method == Method::GET || (*method == Method::POST && p.len() == 5 && p[4] == "run")
+}
+
+/// `launchpad recall …` reads (GET `/api/recall/{workspace}/search|get|status` and `/api/recall/config`): every access
+/// level, in the session's own workspace (`within_workspace`); Home also checks that a bot's session has `recall` on
+/// in its bot.toml. Backfill, rebuild and the settings are admin actions (`recall.*`).
+fn recall_read(method: &Method, path: &str) -> bool {
+    let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    *method == Method::GET && p.len() >= 3 && p[..2] == ["api", "recall"] && (p[2..] == ["config"] || (p.len() == 4 && !p[2].is_empty() && matches!(p[3], "search" | "get" | "status")))
 }
 
 /// `launchpad oracle test` (`oracle.test` with a draft): propose access, in the session's own workspace; Home runs
@@ -319,7 +327,7 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         };
         return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, why));
     }
-    if tool_need(req.method(), &path) == Some(LaunchpadAccess::Admin) || oracle_read(req.method(), &path) || oracle_test(req.method(), &path) || folio_need(req.method(), &path).is_some() {
+    if tool_need(req.method(), &path) == Some(LaunchpadAccess::Admin) || oracle_read(req.method(), &path) || recall_read(req.method(), &path) || oracle_test(req.method(), &path) || folio_need(req.method(), &path).is_some() {
         return Ok(req);
     }
     if access == Some(LaunchpadAccess::Admin) && admin_direct(req.method(), &path) {
@@ -477,6 +485,9 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["tool-defaults", scope, id]) => Tools(scope, id),
         (true, ["gh", owner, repo, ..]) => Repo(owner, repo),
         (_, ["oracles", ws, ..]) => Workspace(ws),
+        // Recall's settings are Home-wide; a memory is one workspace's.
+        (_, ["recall", "config"]) => Shared,
+        (_, ["recall", ws, ..]) => Workspace(ws),
         (_, ["folios", ws, ..]) => Workspace(ws),
         _ => Unscoped,
     }
@@ -1025,6 +1036,25 @@ mod tests {
         assert_eq!(names(&Method::GET, "/api/oracles"), Names::Unscoped);
     }
 
+    #[test]
+    fn recall_reads_at_every_level_and_admin_runs_its_actions() {
+        for p in ["/api/recall/w1/search", "/api/recall/w1/get", "/api/recall/w1/status"] {
+            assert_eq!(tool_need(&Method::GET, p), Some(LaunchpadAccess::Read), "{p}");
+            assert_eq!(names(&Method::GET, p), Names::Workspace("w1"), "{p}");
+        }
+        assert_eq!(tool_need(&Method::GET, "/api/recall/config"), Some(LaunchpadAccess::Read));
+        assert_eq!(names(&Method::PATCH, "/api/recall/config"), Names::Shared);
+        for (m, p) in [(Method::POST, "/api/recall/w1/backfill"), (Method::POST, "/api/recall/w1/rebuild"), (Method::PATCH, "/api/recall/config")] {
+            assert_eq!(tool_need(&m, p), None, "{m} {p}");
+            assert!(admin_allows(&m, p), "{m} {p}");
+            assert!(!recall_read(&m, p), "{m} {p}");
+        }
+        assert_eq!(names(&Method::POST, "/api/recall/w1/backfill"), Names::Workspace("w1"));
+        for p in ["/api/recall", "/api/recall//search", "/api/recall/w1/other", "/api/recall/w1/search/x"] {
+            assert!(!recall_read(&Method::GET, p), "{p}");
+        }
+    }
+
     /// T10: an oracle's `tools.launchpad` reads what a read-level session reads, GET only: never runs oracles,
     /// writes, the configuration, session-bound routes or diagnostics.
     #[test]
@@ -1091,7 +1121,7 @@ mod tests {
             let line = format!("`{}`", actions::usage("launchpad", a));
             // Oracle and folio actions have their own commands (`launchpad oracle …`, `launchpad folio …`), and so has
             // a channel edit (`launchpad channel edit`).
-            assert_eq!(reference.contains(&line), a.access == ActionAccess::Admin && !a.name.starts_with("oracle.") && !a.name.starts_with("folio.") && a.name != "channel.rename", "{line}");
+            assert_eq!(reference.contains(&line), a.access == ActionAccess::Admin && !a.name.starts_with("oracle.") && !a.name.starts_with("folio.") && !a.name.starts_with("recall.") && a.name != "channel.rename", "{line}");
             assert!(!propose.contains(&line), "{line}");
             if matches!(a.effect, actions::ActionEffect::Outside | actions::ActionEffect::Machine) {
                 assert_eq!(a.access, ActionAccess::Owner, "{}", a.name);

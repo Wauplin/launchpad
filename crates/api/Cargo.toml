@@ -14,6 +14,7 @@ axum = { version = "0.8.9", features = ["ws", "macros"] }
 futures-util = "0.3.34"
 hex = "0.4.3"
 launchpad-automation = { version = "0.1.0", path = "../automation" }
+launchpad-recall = { version = "0.1.0", path = "../recall" }
 launchpad-channels = { version = "0.1.0", path = "../channels" }
 launchpad-core = { version = "0.1.0", path = "../core" }
 launchpad-github = { version = "0.1.0", path = "../github" }

@@ -64,6 +64,24 @@ pub struct HomeConfig {
     /// IANA time zone (for example `Europe/Paris`) of schedules created without a browser's zone and of the daily
     /// channel digests (`launchpad_channels::digest`). Empty: the host's time zone.
     pub time_zone: String,
+    pub recall: RecallConfig,
+}
+
+/// Recall (`launchpad_recall`): a search index over the past sessions of each workspace, built on Home with the
+/// `funes` program. Derived from the stored events and rebuildable; never an authority.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
+#[serde(default)]
+pub struct RecallConfig {
+    /// Off by default: Home indexes nothing and `launchpad recall` answers that recall is off.
+    pub enabled: bool,
+    /// Also index archived sessions. Off: archiving a session hides it from recall at once, and a rebuild leaves
+    /// it out.
+    pub include_archived: bool,
+    /// Sessions hidden from recall (session IDs): never returned, and left out by the next rebuild.
+    pub hidden: Vec<String>,
+    /// Workspaces (IDs) whose whole history is kept indexed (`recall.backfill` adds them): Home continues their
+    /// backfill after a restart and indexes them again when their memory is gone.
+    pub backfill: Vec<String>,
 }
 
 /// Burst: HF Jobs that Home starts as runners when no runner takes a launch, or on Continue on Burst.

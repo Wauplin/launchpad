@@ -17,6 +17,7 @@ The rules that each area of Launchpad must keep. [AGENTS.md](../../AGENTS.md) ho
 | Connections, Outbox, Telegram, incoming hooks | [connections.md](connections.md) |
 | Ask Launchpad, Launchpad CLI access levels, workspace boundary for agents, proposals and cards | [proposals.md](proposals.md) |
 | Oracles, their pre-check, evaluation and routine gates | [oracles.md](oracles.md) |
+| Recall: the derived search index over past sessions | [recall.md](recall.md) |
 | Folios, their format, reader, sketches, data API, marks and Share | [folios.md](folios.md) |
 | Desktop companion (`desktop/`) | [desktop.md](desktop.md) |
 | Terminals | [terminals.md](terminals.md) |

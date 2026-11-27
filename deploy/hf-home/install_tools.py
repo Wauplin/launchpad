@@ -67,3 +67,22 @@ version = versions['slackline']
 archive = download(f'https://github.com/co42/slackline/releases/download/v{version}/slackline-v{version}-x86_64-unknown-linux-gnu.tar.gz')
 sha256_of(archive, digests['slackline'], 'slackline')
 install('/usr/local/bin/slackline', from_tar(archive, 'slackline'))
+
+# Funes' models (recall, launchpad_recall::funes): the embedder and the reranker, each file at the revision pinned in
+# release.json and checked against its digest, laid out as a Hugging Face cache (`hub/models--<owner>--<name>/snapshots/
+# <revision>/`). Home runs funes offline with HF_HOME=/opt/funes/hf (LAUNCHPAD_FUNES_HF_HOME), so the weights never
+# change under a memory and are never downloaded at run time. The funes program itself is built in the Dockerfile.
+for repo, model in pins['funes']['models'].items():
+    revision = model['revision']
+    if not re.fullmatch(r'[0-9a-f]{40}', revision): raise ValueError('Model revisions must be full commit IDs')
+    folder = Path('/opt/funes/hf/hub') / ('models--' + repo.replace('/', '--')) / 'snapshots' / revision
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, expected in model['files'].items():
+        target = folder / name
+        subprocess.run(['curl', '-4', '--fail', '--silent', '--show-error', '--location', '--retry', '3', '--connect-timeout', '20', '--max-time', '1800',
+                        '--output', str(target), f'https://huggingface.co/{repo}/resolve/{revision}/{name}'], check=True)
+        digest = hashlib.sha256()
+        with target.open('rb') as f:
+            for chunk in iter(lambda: f.read(1 << 20), b''):
+                digest.update(chunk)
+        if digest.hexdigest() != expected: raise ValueError(f'{repo}/{name} checksum mismatch')

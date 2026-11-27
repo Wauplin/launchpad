@@ -13,6 +13,7 @@ launchpad-core = { version = "0.1.0", path = "../core" }
 launchpad-channels = { version = "0.1.0", path = "../channels" }
 launchpad-github = { version = "0.1.0", path = "../github" }
 launchpad-automation = { version = "0.1.0", path = "../automation" }
+launchpad-recall = { version = "0.1.0", path = "../recall" }
 launchpad-setup = { version = "0.1.0", path = "../setup" }
 launchpad-harness = { version = "0.1.0", path = "../harness" }
 launchpad-server = { version = "0.1.0", path = "../server" }

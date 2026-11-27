@@ -174,6 +174,28 @@ Launchpad commands are GETs of Home's own router in process (`launchpad_server::
 
 Each evaluation records its callers and what each did with the answer. Cursors belong to consumers (`oracle_cursor`: `routine:<id>` or `cli:<workspace>:<oracle>:<name>`) and commit only when the consumer acts; `oracle_streak` keeps each oracle's failure streak. Gates (`gates.rs`) are an optional `[gate]` of routines with a schedule trigger: each due tick evaluates first, then `decide` (pure) picks a run or a quiet check (`RunOutcome::Checked`), and a run commits the cursor and the gate state in its claim transaction (`crons::start`). The routes (`crates/api/src/oracles.rs`, `/api/oracles/{workspace}…`) are Home-owned; the CLI is `crates/cli/src/oracle.rs`, whose `oracle test` sends a draft to Home (`oracle.test`), never running it in the agent's jail.
 
+## Recall
+
+Recall (`crates/recall`) is a derived search index over past sessions; see [Recall](recall.md) and [its invariants](invariants/recall.md). It lives on Home only, in `<data>/recall/ws/<workspace>`: `funes/` (the `FUNES_HOME` of that workspace's Funes memory, a Lance dataset), `ledger.db` (SQLite) and `spool/`. Nothing of it is in `state.db` or in Home's backups.
+
+```mermaid
+flowchart LR
+  E[(state.db: session events)] -- "turn_ended, turn_saved, backfill" --> C[convert.rs: events to Funes turns]
+  C --> F["funes index (one-shot child)"]
+  F --> M[(Funes memory per workspace)]
+  F -- "accepted" --> L[(ledger.db: cursor per session, turn map)]
+  Q["launchpad recall (GET /api/recall/{workspace}/search)"] --> R["funes recall (one-shot child)"]
+  M --> R
+  R -- "hits: session, Funes seq" --> A[query.rs: map through the ledger and Home's records, filter, fence]
+  L --> A
+```
+
+- `convert.rs` turns the normalized events of finished turns into Funes turns: a message is a `user` turn (another sender is named in its first line), the agent's work until the next message is one or more `assistant` turns of at most 24 blocks. A turn's ID is `lp<seq>` of its first event.
+- `ledger.rs` records, per session, the event sequence indexed through and the next Funes `seq` (Funes wants a dense counter), and per turn the Home sequences that turn a hit into `lp:session/<id>/<seq>`. A row moves only after `funes index` succeeded.
+- `index.rs` runs one writer at a time for all of Home: after each turn for the session that ended it, and as a backfill over a workspace (`recall.backfill`), which the worker continues every 15 minutes for the workspaces of `home.recall.backfill`.
+- `query.rs` answers `launchpad recall`: it runs `funes recall`, maps each hit to Home's records, drops hits of archived, hidden or foreign sessions, and prints them under a fixed notice with every excerpt fenced. `recall get` reads `state.db`, not Funes.
+- `funes.rs` finds the program (`LAUNCHPAD_FUNES`, else `PATH`) and the weights (`LAUNCHPAD_FUNES_HF_HOME`) and runs it with a cleared environment, offline.
+
 ## Folios
 
 A folio (`crates/automation`) is a report an agent writes as Markdown with typed blocks; see [Folios](folios.md). It is a workspace record (`folio`: slug, title, kind, state, author, rev, topic, thread) plus a plain store `folio-<id>` (`plain::folio_store`). Only Home writes it, through `folios::write`: one writer at a time, `plain::write_files`, and `plain::commit` refuses folio stores. Each write is one rev (`folio_rev`: the files it changed before and after, its author and problem counts), so diff and Restore (a new rev) read revs, not `plain_history`. An agent's `folio done` squashes its own newest open revs into one closed rev (`folio_rev.sealed`), numbered like the first, and renumbers what named them. A write may name the rev it read (`base_rev`): a file changed since keeps both versions (`<name>.concurrent-<id>.md`, rule F108). Hard limits refuse a write; otherwise it is saved with its problems, and only `strict` refuses one with errors.
@@ -307,6 +329,7 @@ crates/
 ├── channels/    launchpad-channels: connections, the Outbox, Telegram, incoming hooks, bot channels and DMs
 ├── github/      launchpad-github: Suggestions and their ledger, the extension's context, private notes, item links
 ├── automation/  launchpad-automation: routines (crons), scheduled launches, proposals, oracles and gates, folios
+├── recall/      launchpad-recall: the derived search index over past sessions (Funes): converter, ledger, indexer, queries
 ├── setup/       launchpad-setup: setup checklist, clone from GitHub, onboarding progress
 ├── http/        launchpad-http: API error type, route state (Ctx), session CLI token checks
 ├── api/         launchpad-api: the JSON routes that need only the App
@@ -336,16 +359,17 @@ flowchart BT
     channels[launchpad-channels] --> core
     github[launchpad-github] --> core
     automation[launchpad-automation] --> core
+    recall[launchpad-recall] --> core
     setup[launchpad-setup] --> core
     http[launchpad-http] --> core
     server[launchpad-server] --> http
     api[launchpad-api] --> http
-    api --> channels & github & automation & setup
+    api --> channels & github & automation & recall & setup
     cli[launchpad binary] --> harness & server & api
 ```
 
 - `launchpad-core` depends on no other Launchpad crate. Every other crate depends on it.
-- The feature crates (`harness`, `channels`, `github`, `automation`, `setup`) depend only on the core. They do not depend on each other, so they compile in parallel.
+- The feature crates (`harness`, `channels`, `github`, `automation`, `recall`, `setup`) depend only on the core. They do not depend on each other, so they compile in parallel.
 - `launchpad-server` does not depend on `launchpad-api` or on the feature crates. `launchpad_server::serve(app, api)` receives the API router from the binary and serves it behind its authentication, relay and forwarding layers.
 - The binary (`crates/cli`) depends on every crate and connects them.
 
