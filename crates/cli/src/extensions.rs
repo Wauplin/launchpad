@@ -8,7 +8,6 @@ pub struct Extensions;
 #[async_trait::async_trait]
 impl launchpad_core::ext::Extensions for Extensions {
     fn notify_connections(&self, app: &App, session: &Session, event: &'static str) {
-        launchpad_channels::telegram::notify(app, session, event);
         launchpad_channels::push::session_event(app, session, event);
     }
     fn turn_ended(&self, app: &App, session: &Session) {

@@ -1,4 +1,4 @@
-// Settings → Workspace: the window's workspace (name, its bots, its own Telegram bot and chat, the tools and MCP servers granted to it and
+// Settings → Workspace: the window's workspace (name, its bots, the tools and MCP servers granted to it and
 // which of them new sessions get by default, another window, Delete). Everything else in Settings is shared by every workspace.
 
 import { BotAvatar } from "@/components/BotAvatar";
@@ -13,7 +13,6 @@ import { api } from "@/lib/api";
 import { useBots } from "@/lib/bots";
 import { openInNewTab, useScope, useWorkspaces } from "@/lib/workspace";
 import { Card, SavedInput, SettingsPage } from "./SettingsView";
-import { TelegramCard } from "./TelegramSettings";
 import { ToolDefaultsEditor, useSaveToolDefaults } from "./ToolDefaults";
 import { useToolDefaults } from "@/lib/toolDefaults";
 import { usePhone } from "@/lib/phone";
@@ -59,7 +58,6 @@ export function WorkspaceSettings() {
           </Link>
         ))}
       </Card>
-      <TelegramCard workspace={w.id} name={w.name} />
       <Card title="Tools and MCP servers" end={<Link to="/settings/credentials" className="btn btn-sm no-underline">Edit in Credentials and tools</Link>}>
         <span className="text-[12px] text-ink-3">Sessions of {w.name} can use these tools and MCP servers. Their tokens stay on Home; you grant them per workspace in Credentials and tools. Off: a new session gets it only when a folder, a bot or the composer switches it on.</span>
         {vault.isLoading || mcp.isLoading ? <Loading /> : tools.length + servers.length === 0 ? <Empty icon="term">Nothing is granted to {w.name}.</Empty> : (

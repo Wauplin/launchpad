@@ -13,7 +13,7 @@ use crate::model::Session;
 
 #[async_trait]
 pub trait Extensions: Send + Sync {
-    /// A session notification for the Telegram chat of the session's workspace (`notify::session`). `event`: the event's name.
+    /// A session notification for the owner's phone (`notify::session`, `launchpad_channels::push`). `event`: the event's name.
     fn notify_connections(&self, _app: &App, _session: &Session, _event: &'static str) {}
     /// A turn ended: routine run records and `session_done` triggers (`crons::turn_ended`).
     fn turn_ended(&self, _app: &App, _session: &Session) {}

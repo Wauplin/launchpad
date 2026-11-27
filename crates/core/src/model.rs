@@ -852,7 +852,7 @@ pub struct RoutineLaunch {
 pub struct BotLaunch {
     pub id: String,
     pub name: String,
-    /// Its slug (its Telegram command).
+    /// Its slug.
     pub slug: String,
     /// BOT.md, the owner's instructions. Cleared in session lists.
     pub instructions: String,

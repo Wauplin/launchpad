@@ -166,7 +166,7 @@ async fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
 fn admin_allows(method: &Method, path: &str) -> bool {
     if *method == Method::GET {
         let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        const CLOSED: &[&str] = &["config", "devices", "terminals", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "connections", "outbox", "review-state", "topics", "plain", "kb", "knowledge", "code", "ext", "egress"];
+        const CLOSED: &[&str] = &["config", "devices", "terminals", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "connections", "phone", "outbox", "review-state", "topics", "plain", "kb", "knowledge", "code", "ext", "egress"];
         return p.first() == Some(&"api") && p.get(1).is_some_and(|a| !CLOSED.contains(a));
     }
     actions::find(method.as_str(), path).is_some_and(|a| a.access == ActionAccess::Admin)
@@ -707,7 +707,7 @@ mod tests {
             assert!(!read_allowed(path));
             assert!(!own_write(path));
         }
-        for path in ["/api/predrafts/p/publish", "/api/predrafts/p/merge-local", "/api/suggestions/s/post", "/api/outbox/o/send", "/api/connections", "/api/connections/telegram/w1/token", "/api/connections/telegram/w1"] {
+        for path in ["/api/predrafts/p/publish", "/api/predrafts/p/merge-local", "/api/suggestions/s/post", "/api/outbox/o/send", "/api/connections", "/api/phone/push/key", "/api/phone/push"] {
             assert!(!own_write(path));
         }
         assert!(read_allowed("/api/context/folders"));
@@ -845,7 +845,7 @@ mod tests {
         }
         assert_eq!(tool_need(&Method::GET, "/api/context/sessions/s1"), Some(LaunchpadAccess::Read));
         // The owner's routes with secrets or machine state stay closed, whatever the access.
-        for path in ["/api/burst", "/api/runners", "/api/vault/leases", "/api/connections", "/api/connections/telegram/w1", "/api/home/backup", "/api/config", "/api/egress"] {
+        for path in ["/api/burst", "/api/runners", "/api/vault/leases", "/api/connections", "/api/phone/push", "/api/home/backup", "/api/config", "/api/egress"] {
             assert!(!admin_allows(&Method::GET, path), "{path}");
         }
     }

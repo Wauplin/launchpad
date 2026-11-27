@@ -14,7 +14,7 @@ The rules that each area of Launchpad must keep. [AGENTS.md](../../AGENTS.md) ho
 | GitHub reads and writes, extension context, diff selections, Push to PR, attribution, ledger | [github.md](github.md) |
 | Bots, threads, routing, conversations, senders and hops, Chats, bot page, publishing | [bots.md](bots.md) |
 | Bot channels and DMs, delivery, loop guard, digests, files, scheduled posts | [channels.md](channels.md) |
-| Connections, Outbox, Telegram, incoming hooks | [connections.md](connections.md) |
+| Connections, Outbox, incoming hooks, phone notifications | [connections.md](connections.md) |
 | Ask Launchpad, Launchpad CLI access levels, workspace boundary for agents, proposals and cards | [proposals.md](proposals.md) |
 | Oracles, their pre-check, evaluation and routine gates | [oracles.md](oracles.md) |
 | Recall: the derived search index over past sessions | [recall.md](recall.md) |

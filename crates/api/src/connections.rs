@@ -1,17 +1,15 @@
-//! Connections on Home (`launchpad_channels::{connections, telegram, hooks}`): outgoing webhooks and the Outbox, each
-//! workspace's Telegram chat (`/api/connections/telegram/{workspace}`) and incoming hooks. Runners forward `/api/connections` and `/api/outbox` to Home.
+//! Connections on Home (`launchpad_channels::{connections, hooks}`): outgoing webhooks, the Outbox and incoming
+//! hooks. Runners forward `/api/connections` and `/api/outbox` to Home.
 //! `POST /hooks/<id>` skips the browser sign-in: it authenticates with the hook's own secret.
 
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, patch, post, put};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use launchpad_channels::connections::{self, Connection, Draft, DraftResult, Edit, NewConnection, OutboxMessage};
 use launchpad_channels::hooks::{self, CreatedHook, NewHook};
-use launchpad_channels::telegram::{self, TelegramStatus};
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::Ctx;
@@ -23,11 +21,6 @@ pub fn router() -> Router<Ctx> {
         .route("/api/connections/send", post(send_draft))
         .route("/api/connections/names", get(names))
         .route("/api/connections/{id}", delete(remove))
-        .route("/api/connections/telegram/notify", post(telegram_notify))
-        .route("/api/connections/telegram/{workspace}", get(telegram_status).patch(telegram_patch).delete(telegram_remove))
-        .route("/api/connections/telegram/{workspace}/token", put(telegram_token))
-        .route("/api/connections/telegram/{workspace}/code", post(telegram_code))
-        .route("/api/connections/telegram/{workspace}/test", post(telegram_test))
         .route("/api/connections/hooks", post(hook_create))
         .route("/api/connections/hooks/{id}", delete(hook_delete))
         .route("/api/bots/{id}/queued", get(queued))
@@ -67,49 +60,12 @@ async fn remove(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value
     connections::delete(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
-/// An agent's `launchpad send`: Home takes the session from its own record of the CLI token, never from the body,
-/// so an agent reaches only the Telegram chat of its own workspace.
+/// An agent's `launchpad send`: Home takes the session from its own record of the CLI token, never from the body.
 async fn send_draft(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut d): Json<Draft>) -> ApiResult<DraftResult> {
     if let Some(a) = agent {
         d.session_id = Some(a.0.0);
     }
     Ok(Json(connections::draft(&s.app, d).await.map_err(bad)?))
-}
-
-#[derive(Deserialize)]
-struct Token {
-    token: String,
-}
-async fn telegram_status(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<TelegramStatus> {
-    Ok(Json(telegram::status(&s.app, &ws).await))
-}
-async fn telegram_token(State(s): State<Ctx>, Path(ws): Path<String>, Json(t): Json<Token>) -> ApiResult<TelegramStatus> {
-    Ok(Json(telegram::set_token(&s.app, &ws, &t.token).await.map_err(bad)?))
-}
-async fn telegram_patch(State(s): State<Ctx>, Path(ws): Path<String>, Json(p): Json<telegram::Patch>) -> ApiResult<TelegramStatus> {
-    Ok(Json(telegram::patch(&s.app, &ws, p).await.map_err(bad)?))
-}
-async fn telegram_remove(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Value> {
-    telegram::remove(&s.app, &ws).await.map_err(bad)?;
-    Ok(Json(json!({"ok": true})))
-}
-async fn telegram_code(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<TelegramStatus> {
-    Ok(Json(telegram::new_code(&s.app, &ws).await.map_err(bad)?))
-}
-async fn telegram_test(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Value> {
-    telegram::test(&s.app, &ws).await.map_err(bad)?;
-    Ok(Json(json!({"ok": true})))
-}
-
-#[derive(Deserialize)]
-struct Notify {
-    session_id: String,
-    event: String,
-}
-/// A runner's notification for one of its sessions (`notify::session`).
-async fn telegram_notify(State(s): State<Ctx>, Json(n): Json<Notify>) -> ApiResult<Value> {
-    telegram::notification(&s.app, &n.session_id, &n.event).await.map_err(bad)?;
-    Ok(Json(json!({"ok": true})))
 }
 
 async fn hook_create(State(s): State<Ctx>, Json(n): Json<NewHook>) -> ApiResult<CreatedHook> {
@@ -120,7 +76,7 @@ async fn hook_delete(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<
     Ok(Json(json!({"ok": true})))
 }
 
-/// Hook and Telegram messages waiting for the bot's current turn to end.
+/// Hook, channel and agent messages waiting for the bot's current turn to end.
 async fn queued(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Vec<hooks::QueuedMessage>> {
     Ok(Json(hooks::queued(&s.app, &id).await.map_err(bad)?))
 }

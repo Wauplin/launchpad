@@ -178,6 +178,9 @@ const STATE_MIGRATIONS: &[&str] = &[
     CREATE INDEX topic_session_session ON topic_session(session_id);",
     // 10: a topic Home created for a launch keeps that session until its generated name arrives or the owner renames it.
     "ALTER TABLE topic ADD COLUMN auto_session TEXT;",
+    // 11: Telegram is gone (the Android app notifies): its chat bindings and pending answers.
+    "DROP TABLE IF EXISTS telegram_chat;
+    DROP TABLE IF EXISTS telegram_answer;",
 ];
 
 pub fn open_state(path: &Path) -> Result<Db> {
@@ -261,8 +264,6 @@ CREATE TABLE IF NOT EXISTS replica_orphan (runner_id TEXT NOT NULL, session_id T
 CREATE TABLE IF NOT EXISTS cli_update (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS connection (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS outbox_message (id TEXT PRIMARY KEY, json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS telegram_chat (workspace_id TEXT PRIMARY KEY, json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS telegram_answer (session_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, after_seq INTEGER NOT NULL, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS incoming_hook (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bot_thread (bot_id TEXT NOT NULL, id TEXT NOT NULL, key TEXT, title TEXT NOT NULL, created_at INTEGER NOT NULL, archived_at INTEGER, PRIMARY KEY (bot_id, id));
 CREATE INDEX IF NOT EXISTS bot_thread_key ON bot_thread (bot_id, key);
@@ -379,6 +380,8 @@ CREATE TABLE IF NOT EXISTS folio_block_use (folio_id TEXT NOT NULL, name TEXT NO
     }
     // The vault SSH key (removed): agents push to Home Git and clones use the GitHub sign-in.
     conn.execute_batch("DELETE FROM vault WHERE kind = 'ssh_key';")?;
+    // The Telegram bot tokens (removed with Telegram: the Android app notifies).
+    conn.execute_batch("DELETE FROM vault WHERE id = 'channel-telegram' OR id LIKE 'channel-telegram-%';")?;
     // Traces imported from other instances (peer trace sync, removed): Home is the only source now.
     if has("imported_from") {
         conn.execute_batch("DELETE FROM session_event WHERE session_id IN (SELECT id FROM session WHERE imported_from IS NOT NULL);

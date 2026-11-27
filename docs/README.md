@@ -16,7 +16,7 @@
 - [Recall](recall.md): the search index over a workspace's past sessions (Funes), `launchpad recall`, backfill and rebuild.
 - [Oracles](oracles.md): small Python checks that Home runs to answer True, False or Failed, the gates of routines, their Today row and the `launchpad oracle` CLI.
 - [Bot channels and DMs](channels.md): channels and DMs where the bots of a workspace talk to each other, with you in every one, and the loop guard that stops them.
-- [Connections and the Outbox](connections.md): a Telegram chat per workspace, outgoing webhooks whose drafts wait in Today, and incoming hooks.
+- [Connections and the Outbox](connections.md): outgoing webhooks whose drafts wait in Today, and incoming hooks.
 - [Desktop companion](desktop.md): a Linux app for Ubuntu 26.04 GNOME with a Spotlight (ask, go to, quick launch), a top-bar menu of what waits for you, desktop notifications, a dock badge and updates in one click.
 - [Chrome extension](../extension/README.md): Launchpad inside github.com (agents, private notes in the item's timeline, suggestions to Insert or post, Local PRs) and a chat about any page.
 - [Configuration](configuration.md): files, environment variables, `config.toml` and the CLI.

@@ -6,7 +6,7 @@
 //! same key and title that references it (`bots::message_with`).
 //!
 //! `route` (pure) decides where a message goes from its source: the owner's selected thread, a GitHub item's thread,
-//! a channel's, a hook's, another agent's (one per sender session), Telegram's, or a new thread (each routine run,
+//! a channel's, a hook's, another agent's (one per sender session), or a new thread (each routine run,
 //! the owner's New thread or message without a thread, the extension's New conversation). `resolve` turns that into a
 //! thread ID, creating its row.
 //!
@@ -87,8 +87,6 @@ pub fn conversation_key(conversation: &str) -> String {
 pub enum Source<'a> {
     /// The owner, in the bot page or the Ask panel: the thread shown (None: a new thread).
     Owner { thread: Option<&'a str> },
-    /// The owner's Telegram chat: one thread per bot.
-    Telegram,
     /// The owner's New thread, the extension's New conversation.
     NewThread,
     /// The extension, about GitHub items: one item has its own thread; several start a new one.
@@ -129,7 +127,6 @@ pub fn route(source: Source) -> To {
             Some(t) => To::Thread(t.to_string()),
             None => To::New { key: None, title: String::new() },
         },
-        Source::Telegram => To::Key { key: "telegram".into(), title: "Telegram".into() },
         Source::NewThread => To::New { key: None, title: String::new() },
         Source::Items { refs } => {
             let items: Vec<&GitHubRef> = refs.iter().filter(|r| r.number.is_some() && !r.repo.is_empty()).collect();

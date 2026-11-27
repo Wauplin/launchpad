@@ -8,7 +8,7 @@ const qrShown = () => /demo\.invalid/.test(document.querySelector("main")?.textC
 
 export const settings: Chapter = {
   ...meta("settings"),
-  learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code", "Settings has two parts: Workspace, and Launchpad, shared by every workspace", "Each workspace can have its own Telegram bot and chat", "Settings → GitHub shows Home's GitHub login and rate limits"],
+  learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code", "Settings has two parts: Workspace, and Launchpad, shared by every workspace", "Settings → GitHub shows Home's GitHub login and rate limits"],
   steps: [
     {
       id: "settings.profiles", route: "/settings/profiles", anchor: "settings.profiles",
@@ -42,11 +42,6 @@ export const settings: Chapter = {
       body: "Each Slack profile is a token kept on Home, acting as you or as an app's bot, with a description agents read. Agents use it with launchpad slack --profile <handle>; Home runs the call, so no agent or runner holds the token. A profile is off unless you make it on by default or switch it on for a bot or a launch.",
     },
     {
-      id: "settings.telegram", route: "/settings/workspace", anchor: "settings.telegram",
-      title: "Telegram, per workspace",
-      body: "Each workspace can have its own Telegram bot and chat. Plain text goes to the workspace's Ask bot, /<bot> to its other bots, and only its own notifications arrive there, so two workspaces never mix.",
-    },
-    {
       id: "settings.mcp", route: "/settings/credentials", anchor: "settings.mcp",
       title: "MCP servers",
       body: "Add a remote MCP server once, with its token: agents on every machine reach it through Home, and the token never leaves Home. Switch off each tool agents must not use; a launch can leave a server out.",
@@ -54,7 +49,7 @@ export const settings: Chapter = {
     {
       id: "settings.github", route: "/settings/github", anchor: "settings.github-limits",
       title: "GitHub",
-      body: "Home's GitHub login clones repositories, publishes Local PRs and posts suggestions; it reads GitHub only when one of these asks, never in the background. Rate limits show what is left as of Home's last call. This page is under Launchpad, shared by every workspace; Workspace, at the top, holds its name, bots, Telegram, tools and MCP servers.",
+      body: "Home's GitHub login clones repositories, publishes Local PRs and posts suggestions; it reads GitHub only when one of these asks, never in the background. Rate limits show what is left as of Home's last call. This page is under Launchpad, shared by every workspace; Workspace, at the top, holds its name, bots, tools and MCP servers.",
     },
   ],
 };

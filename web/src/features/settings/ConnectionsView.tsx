@@ -1,5 +1,5 @@
-// Settings → Connections: outgoing webhooks (their messages wait in the Outbox) and incoming hooks, plus a pointer to
-// each workspace's Telegram (Settings → Workspace). Everything lives on Home; webhook URLs and hook secrets are write-only.
+// Settings → Connections: outgoing webhooks (their messages wait in the Outbox) and incoming hooks.
+// Everything lives on Home; webhook URLs and hook secrets are write-only.
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -27,8 +27,7 @@ const copy = (text: string, what: string) => void copyText(text).then(() => toas
 
 /** The page explanation (ⓘ): one paragraph per kind of connection. */
 const INTRO = <>
-  How agents reach you and other people, and how outside tools reach your agents. Home keeps these. URLs, tokens and secrets are never shown again.
-  <span className="mt-1 block"><b>Telegram.</b> Each workspace has its own Telegram bot and chat, set up in Settings → Workspace. Messages to your chat go out directly: that workspace's notifications, the answers to what you send from Telegram, and its agents' <code>launchpad send telegram</code>. Plain text goes to the workspace's Ask bot; <code>/&lt;bot&gt; text</code> gives another of its bots a task. Messages from Telegram never start paid usage.</span>
+  How agents reach other people, and how outside tools reach your agents. Agents reach you through Today and your phone's notifications. Home keeps these. URLs, tokens and secrets are never shown again.
   <span className="mt-1 block"><b>Outgoing.</b> Agents draft messages with <code>launchpad send &lt;name&gt; --body-file &lt;file&gt;</code>. Drafts wait in Today (Send): you edit them and click Send. Nothing is sent on its own or sent twice.</span>
   <span className="mt-1 block"><b>Incoming hooks.</b> A hook turns a POST request into a message to a bot (Ask Launchpad or another): a short note naming the hook, then the request body (at most 16 KB) as data. One message every 10 seconds per hook; extra requests get 429. Launchpad's agents also send <code>X-Launchpad-Hops</code>, so a chain of automatic messages between bots stops after 3 (409, loop guard). Home is a private Space, so callers also send <code>Authorization: Bearer &lt;HF token with read access to the Space&gt;</code>: curl and CI jobs can, GitHub's own webhooks cannot.</span>
 </>;
@@ -38,22 +37,10 @@ export function ConnectionsView() {
   return (
     <SettingsPage tour="settings.connections" title="Connections" intro={INTRO}>
       {q.isLoading ? <Loading what="connections" /> : q.error ? <ErrorState error={q.error} /> : q.data && <>
-        <TelegramPointer />
         <Outgoing connections={q.data.connections} />
         <Incoming hooks={q.data.hooks} origin={q.data.origin} />
       </>}
     </SettingsPage>
-  );
-}
-
-// ---------------------------------------------------------------- Telegram
-
-/** Telegram is a setting of each workspace: this page only points there. */
-function TelegramPointer() {
-  return (
-    <Card title="Telegram: your own chat" end={<Link to="/settings/workspace" className="btn btn-sm no-underline">Open Workspace settings</Link>}>
-      <span className="text-[13px] text-ink-2">Each workspace has its own Telegram bot and chat, in Settings → Workspace.</span>
-    </Card>
   );
 }
 

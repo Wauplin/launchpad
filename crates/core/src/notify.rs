@@ -1,7 +1,6 @@
-//! Session notifications, sent by the daemon so they work when every window is closed: the Telegram chat of the
-//! session's workspace, when it has one (`telegram.rs` in the channels crate, through
-//! `ext::Extensions::notify_connections`). The daemon shows no desktop notifications: it may run anywhere, and the
-//! owner's devices use Telegram.
+//! Session notifications, sent by the daemon so they work when every window is closed: Home wakes the owner's phone
+//! (the Android app; `push.rs` in the channels crate, through `ext::Extensions::notify_connections`), which reads
+//! its notifications from Home. The daemon shows no desktop notifications: it may run anywhere.
 
 use crate::App;
 use crate::model::{Session, SessionStatus};
@@ -17,7 +16,7 @@ pub(crate) enum SessionNotification {
 }
 
 impl SessionNotification {
-    /// The event's name for the Telegram notification (forwarded to Home by runners).
+    /// The event's name for the phone notification (forwarded to Home by runners).
     pub(crate) fn key(self) -> &'static str {
         match self {
             Self::Done => "done",
@@ -45,7 +44,6 @@ pub(crate) fn status_notification(before: SessionStatus, after: SessionStatus, q
 
 /// The caller selects an eligible event and checks active-window suppression.
 pub(crate) fn session(app: &App, s: &Session, event: SessionNotification) {
-    // Each workspace's Telegram chat has its own switch (Settings → Workspace).
     crate::ext::extensions().notify_connections(app, s, event.key());
 }
 

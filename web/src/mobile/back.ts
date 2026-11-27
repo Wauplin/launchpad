@@ -54,7 +54,7 @@ export function installBack(h: RouterHistory): () => void {
   // A reload on an overlay's entry: the overlay is gone, so the entry is a duplicate of the page under it.
   if (markerOf(h)) h.back();
   else if (indexOf(h) === 0) {
-    // A cold start (an installed app opened from a Telegram link): Today, then the page's list, then the page,
+    // A cold start (an installed app opened from a link): Today, then the page's list, then the page,
     // so back walks up instead of closing the app.
     const url = new URL(h.location.href, location.origin);
     const here = url.pathname + url.search + url.hash;

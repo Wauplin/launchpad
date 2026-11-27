@@ -17,12 +17,7 @@ export function PushCard() {
   const q = useQuery({ queryKey: ["phone-push"], queryFn: () => api.get<PushStatus>("/api/phone/push"), staleTime: 30_000, retry: false });
   const set = (next: PushStatus) => qc.setQueryData(["phone-push"], next);
   const [key, setKey] = useState("");
-  const [busy, setBusy] = useState(false);
   const p = q.data;
-  const save = () => {
-    setBusy(true);
-    void runAction<PushStatus>("push.key", {}, { key }).then((s) => { set(s); setKey(""); toast("Saved on Home"); }, toastError).finally(() => setBusy(false));
-  };
   const badge = !p ? undefined : !p.configured ? <Badge tone="attn">No key</Badge> : p.phones > 0 ? <Badge tone="ok" icon="check">{p.phones === 1 ? "1 phone" : `${p.phones} phones`}</Badge> : <Badge>No phone yet</Badge>;
   return (
     <Card title="Phone notifications" end={badge}>
@@ -33,7 +28,7 @@ export function PushCard() {
           <SettingRow label="Service-account key" hint="In the Firebase console of your own project: Project settings → Service accounts → Generate new private key. Paste the whole JSON file. Home keeps it in its vault and never shows it again.">
             <span className="grid gap-2">
               <textarea className="field-input min-h-[96px] w-full font-mono text-[12px]" aria-label="Firebase service-account key (JSON)" placeholder={'{ "type": "service_account", "project_id": "…", … }'} value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" spellCheck={false} />
-              <button className="btn btn-sm btn-primary w-fit" disabled={busy || !key.trim()} onClick={save}>Save on Home</button>
+              <span className="w-fit"><ActionButton<PushStatus> name="push.key" body={{ key }} primary disabled={!key.trim()} onDone={(st) => { set(st); setKey(""); toast("Saved on Home"); }} /></span>
             </span>
           </SettingRow>
         ) : <>

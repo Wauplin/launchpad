@@ -18,7 +18,7 @@ export const useToday = () => useQuery({ queryKey: ["today"], queryFn: () => api
 /** An item with an empty workspace list (shared: a runner to update, a tool or preset proposal) shows in every workspace. */
 export const inWorkspace = (i: TodayItem, workspace: string | null) => !i.workspaces.length || (!!workspace && i.workspaces.includes(workspace));
 
-/** The chips of the page: each filter has its own address (`/?filter=send`), for Telegram links and Ask cards. */
+/** The chips of the page: each filter has its own address (`/?filter=send`), for links and Ask cards. */
 export const FILTERS: [TodayFilter, string, string][] = [
   ["answer", "Answer", "Questions agents asked you, and bots that ask you in a channel"],
   ["review", "Review", "Finished, failed or interrupted agents you have not seen, and Local PRs to publish"],

@@ -1,5 +1,5 @@
 // A bot's threads: its parallel conversations, each one session (the owner's threads, one per GitHub item,
-// channel, hook, agent or Telegram, one per routine run), shown as chats. The bot page shows one thread at a time
+// channel, hook or agent, one per routine run), shown as chats. The bot page shows one thread at a time
 // (`?thread=`, the only place that state lives); the Chats list is the navigation, so the chat has no thread bar.
 // Archive is one click, like an agent's: on the opened chat (`ArchiveThreadButton`) and in ⋯ of each row of the Chats
 // list (`useArchiveThread`). Archiving the chat shown goes back to the Chats landing, never to another chat. Archived

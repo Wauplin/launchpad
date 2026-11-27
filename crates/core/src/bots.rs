@@ -298,7 +298,7 @@ fn ensure_home(app: &App) -> Result<()> {
     Ok(())
 }
 
-/// A slug (its Telegram command): lowercase ASCII words of the name, unique in the workspace.
+/// A slug (its name in commands and mentions): lowercase ASCII words of the name, unique in the workspace.
 pub fn slug_for(name: &str, taken: &[String]) -> String {
     let base: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect();
     let base = base.split('-').filter(|w| !w.is_empty()).collect::<Vec<_>>().join("-");
@@ -552,7 +552,7 @@ pub async fn update(app: &App, id: &str, p: Patch) -> Result<Bot> {
     get(app, id).await
 }
 
-/// A new name gives the bot a new slug (unique in its workspace): its Telegram command follows. Its files, memory
+/// A new name gives the bot a new slug (unique in its workspace): its mentions follow. Its files, memory
 /// included, stay in its store.
 async fn rename(app: &App, bot: &Bot, name: &str) -> Result<()> {
     let taken: Vec<String> = rows(app).await?.into_iter().filter(|r| r.1 == bot.workspace_id && r.0 != bot.id).map(|r| r.2).collect();
@@ -819,7 +819,7 @@ pub struct Message {
 
 /// A message to one of the bot's threads. `automatic` (routines, incoming hooks, other agents): a paused bot refuses it,
 /// it needs confirmed quota (`quota_hold`: refused for the open session, held by the start of a new one) and a free
-/// slot (`bot_threads::at_cap`: callers that can wait queue it first). Hooks, channels and Telegram go through
+/// slot (`bot_threads::at_cap`: callers that can wait queue it first). Hooks and channels go through
 /// `hooks::deliver`, which waits for the end of a running turn. `context` goes with the message to the current
 /// session, or into the launch of a new one. `context.from`, set only by Home's own code (`senders`), names a sender
 /// other than the owner: the message arrives under its header. The bot's lock (`MESSAGES`) covers the choice of

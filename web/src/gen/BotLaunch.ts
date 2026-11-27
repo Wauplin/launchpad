@@ -7,7 +7,7 @@ import type { PermissionMode } from "./PermissionMode";
  */
 export type BotLaunch = { id: string, name: string, 
 /**
- * Its slug (its Telegram command).
+ * Its slug.
  */
 slug: string, 
 /**

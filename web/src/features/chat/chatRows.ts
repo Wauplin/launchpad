@@ -92,7 +92,7 @@ export type ChatItem = {
   | { t: "card"; kind: ChatCard["kind"]; id: string; text: string | null }
   | { t: "changes"; sessionId: string }
   | { t: "working"; sessionId: string; step: string | null }
-  /** A hook or Telegram message waiting for the bot's turn to end (after every other row). */
+  /** A hook, channel or agent message waiting for the bot's turn to end (after every other row). */
   | { t: "queued"; n: number; at: number; source: string; text: string; slot: boolean; dueAt?: number }
   /** Your message Home accepted that no loaded session shows yet (`pendingRows`): its bubble, with how far it got. */
   | { t: "pending"; id: string; text: string; files: FileAttachment[]; state: BotSendState; error: string | null }

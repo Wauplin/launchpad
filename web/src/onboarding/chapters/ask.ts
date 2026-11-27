@@ -110,7 +110,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-threads", route: BOT_ROUTE, anchor: "bots.threads",
       title: "Several threads at once",
-      body: "A bot works on several conversations in parallel. Each chat is one thread, one session. Your messages go to the chat shown; a bot's tile in Chats starts a new one. A review asked from the Chrome extension gets the pull request's own chat, each channel, hook, agent and Telegram gets one, and each routine run starts a new one, so none of them blocks your chat. The Chats list switches between them. Archive is one click and returns to the Chats tiles, × closes the chat without archiving, and the ⋯ of a row in the list renames the chat or brings an archived one back. At most 16 threads work at once (Threads at once in Access): automatic messages to another thread wait for a free slot, yours never wait.",
+      body: "A bot works on several conversations in parallel. Each chat is one thread, one session. Your messages go to the chat shown; a bot's tile in Chats starts a new one. A review asked from the Chrome extension gets the pull request's own chat, each channel, hook and agent gets one, and each routine run starts a new one, so none of them blocks your chat. The Chats list switches between them. Archive is one click and returns to the Chats tiles, × closes the chat without archiving, and the ⋯ of a row in the list renames the chat or brings an archived one back. At most 16 threads work at once (Threads at once in Access): automatic messages to another thread wait for a free slot, yours never wait.",
     },
     {
       id: "ask.bot-answer", route: BOT_ROUTE, anchor: "chat.answering",
@@ -130,7 +130,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-waiting", route: BOT_ROUTE, anchor: "chat.queued",
       title: "Messages that wait",
-      body: "A hook, Telegram, channel or agent message that arrives while its thread works waits for the end of the turn, as a grey row at the bottom of that thread. An automatic message also waits while the bot works in as many threads as it may at once. Cancel drops it before it is sent.",
+      body: "A hook, channel or agent message that arrives while its thread works waits for the end of the turn, as a grey row at the bottom of that thread. An automatic message also waits while the bot works in as many threads as it may at once. Cancel drops it before it is sent.",
     },
     {
       id: "ask.bot-about", route: `${BOT_ROUTE}/settings`, anchor: "bots.settings-page",
@@ -140,7 +140,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-routines", route: `${BOT_ROUTE}/settings`, anchor: "bots.triggers",
       title: "Triggers: work on its own",
-      body: "A routine sends the bot a task by itself: every weekday morning, when Launchpad fails, when another agent is done, or when a new message arrives in a channel (never for its own posts or for messages the channel already delivered to it). Each run starts a thread of its own and ends with a report, or with No update, which never notifies you. “When an agent is done” leaves bots' answers out unless you check Bots' answers count too, and a routine started by events runs at most six times an hour. Incoming hooks and the Telegram command that message the bot are listed too. Each routine is a file of the bot (Edit as file on its settings page), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause all stops every trigger of the bot; your own messages still go through.",
+      body: "A routine sends the bot a task by itself: every weekday morning, when Launchpad fails, when another agent is done, or when a new message arrives in a channel (never for its own posts or for messages the channel already delivered to it). Each run starts a thread of its own and ends with a report, or with No update, which never notifies you. “When an agent is done” leaves bots' answers out unless you check Bots' answers count too, and a routine started by events runs at most six times an hour. Incoming hooks that message the bot are listed too. Each routine is a file of the bot (Edit as file on its settings page), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause all stops every trigger of the bot; your own messages still go through.",
       tryIt: { text: "press Run now on a routine.", done: () => (world.crons.find((c) => c.id === DAILY)?.history.length ?? 0) > dailyRuns, doIt: () => api.post(`/api/launch/crons/${DAILY}/run`) },
       enter: () => { dailyRuns = world.crons.find((c) => c.id === DAILY)?.history.length ?? 0; },
     },

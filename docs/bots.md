@@ -47,12 +47,12 @@ With admin access, a bot can find out by itself why something failed. These comm
 
 | Command | What it shows |
 | --- | --- |
-| `launchpad health` | Everything failing now, by area: failed or stuck agents, runners offline with open sessions or on another build, failed Burst jobs and why Burst cannot start, failed routine runs (and runs skipped for want of a quota reading), scheduled launches and cards, quota and harness errors, automatic work held for 15 minutes by a missing quota reading, MCP, Telegram and GitHub rate limits, backups, the Home update check, setup items left. Each problem names the ids to look at. |
+| `launchpad health` | Everything failing now, by area: failed or stuck agents, runners offline with open sessions or on another build, failed Burst jobs and why Burst cannot start, failed routine runs (and runs skipped for want of a quota reading), scheduled launches and cards, quota and harness errors, automatic work held for 15 minutes by a missing quota reading, MCP, phone notifications and GitHub rate limits, backups, the Home update check, setup items left. Each problem names the ids to look at. |
 | `launchpad logs` | The recent log lines of Home and every connected runner (the last hour by default). `--session <id>` keeps the lines about one agent and its Burst runners; `--runner <id or name>`, `--home` or `--local` pick one daemon; `--since 2h`, `--level warn`, `--grep <text>`, `--json`. |
 | `launchpad sessions show <id>` | An agent with its runner, generation, launch spec, last error, Burst runs and latest handoff. |
 | `launchpad failures` | What Home noticed failing in the last 24 hours (`--since`). |
 | `launchpad runners list`, `launchpad burst runs`, `launchpad burst job <runner id>` | Runners (connection, build, guard, open sessions); Burst runs with their errors; the HF Job of a run (stage, message, last log lines). |
-| `launchpad home`, `launchpad tools list`, `launchpad connections list` | Home's uptime, its last starts (and whether each run stopped cleanly), backups and update state; tools, credential names and MCP servers with their last error; connections and the Telegram link of each workspace. |
+| `launchpad home`, `launchpad tools list`, `launchpad connections list` | Home's uptime, its last starts (and whether each run stopped cleanly), backups and update state; tools, credential names and MCP servers with their last error; connections and the phone notifications' state. |
 
 A bot's CLI acts on an agent of another runner (or of a stopped Burst job) like your buttons do: Home routes the action to the agent's runner, and a launch goes where Home sends launches.
 
@@ -97,9 +97,9 @@ You can also ask Ask Launchpad: "Create a bot that watches the Xet changelog." I
 
 A bot has several threads: parallel conversations about different things. Each thread is one session. The session is a normal agent session (listed in Agents too, with a small teal chip of the bot's name before its title, also in the session header, where it links to the bot's thread; a thread that a routine started shows a small repeat icon inside the chip, before the bot's name, and other routine runs show the same icon before their title). The bot's instructions, settings, memory and routines are shared by all its threads, but each thread knows only its own conversation, so the bot passes facts between threads through its memory, the knowledge base or its folder.
 
-There is no default thread. In the app, a thread is a **chat** (see [Chats](#chats)). A bot's tile in Chats starts a new chat; a link to the bot without a thread (a Telegram notification) opens the chat you looked at last on this device, else the one whose session you saw last, else the most recent one. Home picks the thread of each message from where the message comes from:
+There is no default thread. In the app, a thread is a **chat** (see [Chats](#chats)). A bot's tile in Chats starts a new chat; a link to the bot without a thread opens the chat you looked at last on this device, else the one whose session you saw last, else the most recent one. Home picks the thread of each message from where the message comes from:
 
-- Your messages on the bot's page and in the Ask panel go to the thread you look at. A bot's tile in Chats (and **New chat** in its settings) starts a new one with your next message. **Ask** in the top bar always starts a new thread, also on the bot's own page with a thread open (the page then shows the new thread; reply to a thread with its own message box), and the Ask panel then shows it. Telegram writes in the bot's Telegram thread.
+- Your messages on the bot's page and in the Ask panel go to the thread you look at. A bot's tile in Chats (and **New chat** in its settings) starts a new one with your next message. **Ask** in the top bar always starts a new thread, also on the bot's own page with a thread open (the page then shows the new thread; reply to a thread with its own message box), and the Ask panel then shows it.
 - The Chrome extension's buttons on a GitHub pull request or issue go to that item's thread, so each item has its own conversation. A message about several items starts a new thread.
 - Each channel and DM has its own thread, each incoming hook too, and each agent that messages the bot. A bot that messages another bot from one of its threads brings it into that thread's conversation instead (see [Conversations of several bots](#conversations-of-several-bots)).
 - Each routine run starts a new thread.
@@ -117,13 +117,13 @@ A thread's first message starts its session. When that session cannot go on, the
 
 A permission mode you change on the session itself, in Agents, keeps the thread: only a change in `bot.toml` moves it to a new thread.
 
-Messages to one bot choose their thread one at a time, whoever sends them: your windows, Telegram, hooks, routines and agents. So two messages that arrive together never start two sessions of one thread.
+Messages to one bot choose their thread one at a time, whoever sends them: your windows, the phone, hooks, routines and agents. So two messages that arrive together never start two sessions of one thread.
 
 A thread that continues another gets a reference to the trace of its session (`launchpad trace …`), never a copy of it. Every session gets the bot's memory (see [Memory](#memory)). The harness compacts a long context on its own.
 
 Threads from before a thread was one session may hold several sessions: only the newest one shows and takes messages.
 
-An edit of `BOT.md` starts no new session. The current session gets the new `BOT.md` with your next message: after your text, the message carries a block that starts with “Your instructions changed” and holds the whole new `BOT.md`. This also holds for messages from routines, hooks, Telegram and cards. Until then, the message box says **Instructions updated · applies to your next message**. In the chat, that message shows **With your updated BOT.md** under your text instead of the block.
+An edit of `BOT.md` starts no new session. The current session gets the new `BOT.md` with your next message: after your text, the message carries a block that starts with “Your instructions changed” and holds the whole new `BOT.md`. This also holds for messages from routines, hooks and cards. Until then, the message box says **Instructions updated · applies to your next message**. In the chat, that message shows **With your updated BOT.md** under your text instead of the block.
 
 With a Git folder, each session works in a fresh worktree of Home Git. Without a folder, a session's temporary folder is saved on Home at every turn end and follows the session to any runner; Home deletes it 30 days after the session is archived, so keep what matters in the knowledge base or on a branch. The bot prepares branches, Local PRs and suggestions for your review, and acts directly on GitHub only when you explicitly ask.
 
@@ -141,7 +141,7 @@ One request can need several bots: you ask bot A, and A asks bot B. They then sh
 - **Archive** acts on the whole conversation: every bot's thread of it is archived (refused while one of them works), and **Bring back** brings them back together. A thread that continues in a new session (a change of `bot.toml`, an archived session) stays in its conversation. Thread limits and quota checks apply per bot as before; a message that waits for a free slot shows as **waiting for a free slot** in the timeline.
 - [Today](today.md) shows one card for the conversation: the most urgent session (a question, then a failure, then a finished turn), titled with every bot that needs you, for example “Maintainer + Release · PR #120”.
 
-Known limits: answers from before request IDs, and answers whose request is not loaded yet (scroll up), show at their time as ordinary answers. A does not know what you said directly to B unless it reads the conversation, and only leading @-mentions route. Telegram and the Chrome extension's side panel still write to the bot's own thread and show no merged view.
+Known limits: answers from before request IDs, and answers whose request is not loaded yet (scroll up), show at their time as ordinary answers. A does not know what you said directly to B unless it reads the conversation, and only leading @-mentions route. The Chrome extension's side panel still writes to the bot's own thread and shows no merged view.
 
 ## Chats
 
@@ -183,7 +183,7 @@ Every message shows as Markdown: yours (each line break kept), the bot's answers
 
 A routine run that ends with no update is one muted line. A divider marks the start of the thread's session; in a thread that continues another, it names that thread and the reason, for example “continues “Release notes” because the model changed”. While the bot works, the header says what it works on (“Working · Edited src/app.ts (3 min)”), and the chat's last row shows a spinner, **View running agent** (this thread's session in Agents, with its trace, terminal and files) and **Stop**.
 
-Messages from Telegram, incoming hooks, channels and agents never join a running turn. While their thread is busy, they wait at the end of the chat as grey dashed rows: the start of the message (for a hook, its name and the start of the body), where it came from, when it arrived, and **Cancel**. They are sent in order when the thread's turn ends. A hook message also waits while the bot's quota is not confirmed, and an automatic message waits while the bot works in as many threads as it may. Your Telegram messages do not wait behind it: they go first. **Cancel** deletes a waiting message, after a confirmation.
+Messages from incoming hooks, channels and agents never join a running turn. While their thread is busy, they wait at the end of the chat as grey dashed rows: the start of the message (for a hook, its name and the start of the body), where it came from, when it arrived, and **Cancel**. They are sent in order when the thread's turn ends. A hook message also waits while the bot's quota is not confirmed, and an automatic message waits while the bot works in as many threads as it may. **Cancel** deletes a waiting message, after a confirmation.
 
 ### Messages from other bots and agents
 
@@ -191,7 +191,7 @@ Some messages do not come from you: a message an admin bot sends with `launchpad
 
 In the chat, such a message is a dashed bubble under the sender's mark and name, with its provenance after the name: **Scout bot · not from you**, or **bot · card accepted by you** for a card you accepted (**card accepted automatically** in auto mode); a channel message names its author and **in #channel**. The name links to the bot, the agent or the channel. Agents shows the line **From bot Scout · not from you** over the message in the trace. The row shows the text without the header and the fence. Agents shows the same row in the trace.
 
-Your own messages (also your private notes on GitHub items), Telegram messages, report replies and routine runs get no header. Incoming hooks keep their own fenced block (see [Connections](connections.md)). In the chat, a hook message shows on the left under **Nightly CI hook · not from you**, with a link to Settings → Connections. An agent that another agent launched gets no header either, because its task comes from the agent that delegated it. Its trace still names the launcher.
+Your own messages (also your private notes on GitHub items), report replies and routine runs get no header. Incoming hooks keep their own fenced block (see [Connections](connections.md)). In the chat, a hook message shows on the left under **Nightly CI hook · not from you**, with a link to Settings → Connections. An agent that another agent launched gets no header either, because its task comes from the agent that delegated it. Its trace still names the launcher.
 
 ### Scheduled bot messages
 
@@ -226,14 +226,14 @@ The chat fills the right side of Chats. Its header shows the chat's title, its b
 A bot's settings are a page of their own in Chats: open them from the gear of its tile, from its name in a chat's header (the gear in the bar on a phone), or from a link to `?panel=about` (older links). **New chat** starts a chat with the bot, **Edit as file** opens `bot.toml` or one of its routine files (a file with an error is refused, with the error), and **×** returns to the tiles. On a phone, **‹** returns. The page has these cards:
 
 - **BOT.md**: the bot's instructions. **Edit BOT.md** (or a click on the text) opens a large editor with a live preview (on the phone, a full-screen sheet with **Read** and **Edit**). An unsaved draft stays until you save or discard it. After an edit, a line says that the current session runs the previous version until your next message.
-- **Triggers**: everything that starts the bot without you. Its routines, each with its trigger, its state and its last 5 runs as small squares; a click opens the routine in place (see [Routines](#routines)), and **Open its last chat** opens the chat of its last run. The incoming hooks that message the bot link to Settings → Connections, where you create and edit them, and **Open its chat** opens their chat. Its Telegram command (`/name`, shown only when the bot's workspace has a bound chat, with “plain text too” for the workspace's Ask bot) links to Settings → Workspace. **New trigger** adds a routine. **Pause all** (or **Resume all**) is always there, even without routines (see below).
+- **Triggers**: everything that starts the bot without you. Its routines, each with its trigger, its state and its last 5 runs as small squares; a click opens the routine in place (see [Routines](#routines)), and **Open its last chat** opens the chat of its last run. The incoming hooks that message the bot link to Settings → Connections, where you create and edit them, and **Open its chat** opens their chat. **New trigger** adds a routine. **Pause all** (or **Resume all**) is always there, even without routines (see below).
 - **Profile and model**: a quick choice of the profile and model (see [Create a bot](#create-a-bot)).
 - **Access**: one sentence with the profile, the model, the folder, the permission mode, the Launchpad CLI access (and auto proposals) and the tools on by default. **Edit** opens a short form for these settings, **Chats at once** and the name. A plain folder that the bot no longer uses shows a note here. **What it sees at start** is here too (see [What it sees at start](#what-it-sees-at-start)).
 - **Memory**: the bot's notes (see [Memory](#memory)), with their size; click a note to read it. The title says how much of it a new session loads, for example “loaded at start: 100 of 240 lines” when it was cut.
 - **Versions**: every change of the bot's files (`BOT.md`, `bot.toml`, routine files and memory) in the last 30 days, with its diff and **Restore previous**.
 - **Delete**: **Delete bot**, after a confirmation (off while one of its chats works). Deleting a bot deletes its files, its memory and its routines. Its sessions and its folder stay. Deleting a workspace deletes its bots the same way, and is refused while one of them works.
 
-Renaming a bot also gives it a new slug from the new name, and its Telegram command follows. Its memory stays where it is. A bot cannot edit `BOT.md`, `bot.toml` or its routine files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md` in a [bot file card](#bot-file-cards). The bot's cards show in its chat and in Today; the page has no list of proposals of its own.
+Renaming a bot also gives it a new slug from the new name. Its memory stays where it is. A bot cannot edit `BOT.md`, `bot.toml` or its routine files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md` in a [bot file card](#bot-file-cards). The bot's cards show in its chat and in Today; the page has no list of proposals of its own.
 
 **Pause all** stops every routine and incoming hook of the bot from starting runs. Your own messages still go through, and **Stop** in the chat ends a run that is working. **Resume all** starts them again from their next trigger.
 

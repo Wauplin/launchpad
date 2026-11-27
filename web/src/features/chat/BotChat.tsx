@@ -221,7 +221,7 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
   const otherReady = otherSessions.filter((s) => logs[s.id]?.loaded);
   const otherChats = useMemo(() => others.map((p) => ({ p, sessions: p.sessions.filter((s) => logs[s.id]?.loaded).map(toChat) })), [others, sessionKey(otherReady), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
   const first = ready[0] ? thread.indexOf(ready[0]) : 0;
-  // Hook and Telegram messages waiting for the turn to end: grey rows after the chat, each with Cancel.
+  // Hook, channel and agent messages waiting for the turn to end: grey rows after the chat, each with Cancel.
   const queued = useQuery({ queryKey: ["bot-queued", bot.id], queryFn: () => api.get<QueuedMessage[]>(`/api/bots/${bot.id}/queued`), retry: false }).data;
   // Your messages Home accepted that no loaded session shows yet: their bubbles, with how far each got.
   const sends = useQuery({ queryKey: ["bot-sends", bot.id], queryFn: () => api.get<BotSend[]>(`/api/bots/${bot.id}/sends`), retry: false }).data;
@@ -436,9 +436,9 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
 
 // ---------------------------------------------------------------- rows
 
-const QUEUED_FROM: Record<string, string> = { telegram: "Telegram", hook: "a hook", channel: "a channel", agent: "an agent" };
+const QUEUED_FROM: Record<string, string> = { hook: "a hook", channel: "a channel", agent: "an agent" };
 
-/** A hook, Telegram, channel or agent message waiting for the thread's turn to end (or for a free slot), or a scheduled message waiting for its time, with Cancel. */
+/** A hook, channel or agent message waiting for the thread's turn to end (or for a free slot), or a scheduled message waiting for its time, with Cancel. */
 function QueuedRow({ item, botId }: { item: Extract<ChatItem, { t: "queued" }>; botId: string }) {
   const qc = useQueryClient();
   return <div className="py-1" data-tour="chat.queued"><div className="flex items-center gap-2 rounded-card border border-dashed border-line px-2.5 py-1.5 text-[13px] text-ink-3">

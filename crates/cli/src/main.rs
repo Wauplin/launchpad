@@ -189,10 +189,10 @@ enum Command {
         #[command(subcommand)]
         command: Ci,
     },
-    /// Send a message through one of the owner's connections: `telegram` goes to the owner's own chat of the session's workspace;
-    /// other connections (Slack, Discord, webhooks) wait in the owner's Outbox until they click Send.
+    /// Send a message through one of the owner's connections (Slack, Discord, webhooks): it waits in the owner's
+    /// Outbox until they click Send.
     Send {
-        /// The connection name (Settings → Connections), or `telegram` (Settings → Workspace).
+        /// The connection name (Settings → Connections).
         connection: String,
         #[arg(long)]
         body_file: std::path::PathBuf,
@@ -327,7 +327,7 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
-    /// Connections and each workspace's Telegram link, without URLs or tokens (JSON; admin access).
+    /// Connections and the phone notifications' state, without URLs or keys (JSON; admin access).
     Connections {
         #[command(subcommand)]
         command: ListOnly,

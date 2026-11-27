@@ -1,6 +1,6 @@
-//! Connections: messages to other people through webhooks (held in the Outbox for an owner click), the owner's
-//! own Telegram chat, and incoming hooks (`POST /hooks/<id>`); and bot channels and DMs (`channel`, `delivery`), where
-//! bots talk to each other. Home owns them; runners forward the API.
+//! Connections: messages to other people through webhooks (held in the Outbox for an owner click) and incoming hooks
+//! (`POST /hooks/<id>`); bot channels and DMs (`channel`, `delivery`), where bots talk to each other; and the
+//! wake-ups of the owner's phone (`push`). Home owns them; runners forward the API.
 
 pub mod agent;
 pub mod cards;
@@ -13,7 +13,6 @@ pub mod hooks;
 pub mod scheduled;
 pub mod sends;
 pub mod push;
-pub mod telegram;
 pub mod today;
 
 use anyhow::Result;
@@ -39,7 +38,6 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     use ts_rs::TS;
     connections::Connection::export_all(cfg)?;
     connections::OutboxMessage::export_all(cfg)?;
-    telegram::TelegramStatus::export_all(cfg)?;
     push::PhoneNotifications::export_all(cfg)?;
     push::PushStatus::export_all(cfg)?;
     hooks::Hook::export_all(cfg)?;

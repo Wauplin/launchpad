@@ -55,7 +55,7 @@ Home sends its profiles and the settings runners apply to their own work, such a
 
 At the end of every turn, the runner saves the session's work on Home: it pushes each worktree branch, syncs plain and temporary folders, and sends the conversation (the handoff). Until Home has all of it, the session shows **Saving** next to its status. When a save fails, it shows **Not on Home** in amber, with the reason in its tooltip. The runner retries every three minutes and when its link to Home comes back. The conversation is sent in full only the first time: after that, the runner sends only what was added since the last turn, and Home checks that the rebuilt file is complete. If Home refuses the short form, the runner sends the full conversation at once. After a move or a Burst start, the new runner knows what Home holds, so its first save is short too. While a session is not saved, Today shows no **Merge** for it, and a routine that waits for that agent to be Done starts only once the save is complete (at most an hour later).
 
-A runner restart cuts the running turns short. When the runner starts again, it treats each of them as a turn end: the session shows Interrupted (or Quota paused), its work is saved on Home once the link is back, and the Telegram notification goes out after that save. A session that Home moved to another runner meanwhile is not notified.
+A runner restart cuts the running turns short. When the runner starts again, it treats each of them as a turn end: the session shows Interrupted (or Quota paused), its work is saved on Home once the link is back, and its notification goes out after that save. A session that Home moved to another runner meanwhile is not notified.
 
 The runner also snapshots every file of each worktree to Home, committed or not, at each turn end and every five minutes during a turn. A snapshot never touches the worktree's files, index or branch.
 
@@ -68,7 +68,7 @@ When the runner is away (a sleeping laptop, a stopped Burst job), or its folder 
 
 ## Burst
 
-When a launch finds no runner that takes it (your laptop is off or asleep), Home starts it on **Burst**: an HF Job in Home's namespace, from Home's own Space image, so it runs the same build. Choose **Burst** in the composer's **Runner** option to use it on purpose. Crons, scheduled launches, bots and Ask Launchpad use it the same way when no runner is online. A message to a session whose runner is away and no other runner takes it (yours, a bot's, a routine's, a hook's or Telegram's) moves the session to Burst first, then sends the message there. Messages sent while that Burst job starts wait for it and follow in order (a retry of the same message is sent once).
+When a launch finds no runner that takes it (your laptop is off or asleep), Home starts it on **Burst**: an HF Job in Home's namespace, from Home's own Space image, so it runs the same build. Choose **Burst** in the composer's **Runner** option to use it on purpose. Crons, scheduled launches, bots and Ask Launchpad use it the same way when no runner is online. A message to a session whose runner is away and no other runner takes it (yours, a bot's, a routine's or a hook's) moves the session to Burst first, then sends the message there. Messages sent while that Burst job starts wait for it and follow in order (a retry of the same message is sent once).
 
 Each HF Job has the labels `launchpad-burst=1` and `launchpad-burst-id=<burst id>` to identify Burst jobs and their runs.
 
@@ -107,7 +107,7 @@ The composer's **Tools** option starts from these defaults for the chosen folder
 
 ## Notifications and routines
 
-Home sends notifications through the Telegram chat of each session's workspace, wherever the session runs: a runner forwards the notification of a session that finishes, fails or is interrupted to Home. There are no desktop notifications. Routines, scheduled launches and the morning brief run on Home's schedule, on a runner when one takes the run, otherwise on Burst ([Routines](bots.md#routines)).
+Home wakes the owner's phone for a session wherever it runs: a runner forwards the notification of a session that finishes, fails or is interrupted to Home. There are no desktop notifications. Routines, scheduled launches and the morning brief run on Home's schedule, on a runner when one takes the run, otherwise on Burst ([Routines](bots.md#routines)).
 
 [Oracles](oracles.md) are the one kind of code Home runs itself: each evaluation runs in a fresh Monty worker process on Home, at most 16 at once. Monty is a Python interpreter for untrusted code: the oracle has no files, environment, network or subprocesses, and reaches the outside only through four read-only tools that Home checks, runs and logs, adding the token of a registry tool itself. Tokens never enter the worker. Home needs two programs for oracles, `monty` and `ruff`, and `slackline` for agents' `launchpad slack` calls ([Slack](slack.md)); the Space image includes them. Agents test drafts on Home too, with `launchpad oracle test`, never in their own jail.
 

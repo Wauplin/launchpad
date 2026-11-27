@@ -5,11 +5,11 @@
  */
 export type QueuedMessage = { n: number, at: number, 
 /**
- * "telegram", "hook" or "channel".
+ * "hook", "channel", "agent" or "scheduled".
  */
 source: string, 
 /**
- * The message without Launchpad's own lines: the Telegram text, or the hook's name and the start of its body.
+ * The message without Launchpad's own lines: a hook's name and the start of its body.
  */
 text: string, 
 /**

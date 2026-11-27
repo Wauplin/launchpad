@@ -248,14 +248,13 @@ fn reqwest_host(url: &str) -> String {
     url.split("://").nth(1).unwrap_or(url).split(['/', '?']).next().unwrap_or_default().rsplit('@').next().unwrap_or_default().to_string()
 }
 
-/// Connections by name, kind and host, and each workspace's Telegram link: its state and last error (no URL, token
-/// or code).
+/// Connections by name, kind and host (no URL), and the phone notifications' state.
 async fn connections(State(s): State<Ctx>) -> ApiResult<Value> {
     let list = launchpad_channels::connections::list(&s.app).await.unwrap_or_default();
-    let telegram = launchpad_channels::telegram::statuses(&s.app).await;
+    let push = launchpad_channels::push::status(&s.app).await.ok();
     Ok(Json(json!({
         "connections": list.iter().map(|c| json!({"id": c.id, "name": c.name, "kind": c.kind, "host": c.host})).collect::<Vec<_>>(),
-        "telegram": telegram.iter().map(|t| json!({"workspace": t.workspace_id, "configured": t.configured, "bound": t.bound, "bot_username": t.bot_username, "notify": t.notify, "error": t.error.as_deref().map(logs::redact)})).collect::<Vec<_>>(),
+        "phone_push": push.map(|p| json!({"configured": p.configured, "project_id": p.project_id, "phones": p.phones, "last_sent_at": p.last_sent_at, "error": p.last_error.as_deref().map(logs::redact)})),
     })))
 }
 
@@ -352,8 +351,8 @@ async fn health(State(s): State<Ctx>) -> ApiResult<Value> {
     for m in launchpad_core::mcp::list(app).await.unwrap_or_default() {
         if let Some(e) = &m.error { add("mcp", format!("MCP server {} failed its last refresh", m.name), Some(logs::redact(e)), json!({"mcp": m.id})); }
     }
-    for t in launchpad_channels::telegram::statuses(app).await {
-        if let Some(e) = t.error { add("connections", "Telegram failed".into(), Some(logs::redact(&e)), json!({"workspace": t.workspace_id})); }
+    if let Some(e) = launchpad_channels::push::status(app).await.ok().and_then(|p| p.last_error) {
+        add("connections", "Phone notifications failed".into(), Some(logs::redact(&e)), json!({}));
     }
     for (host, l) in app.github.limits.read().await.iter().filter(|(_, l)| l.remaining <= 0 && l.reset_at * 1000 > now) {
         add("github", format!("GitHub rate limit reached ({host})"), Some(format!("resets at {}", l.reset_at)), json!({}));

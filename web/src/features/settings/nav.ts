@@ -9,7 +9,7 @@ import { delegatedAccess } from "@/lib/deployment";
 export type NavEntry = { to: string; label: string; icon: IconName; exact?: boolean; keywords?: string };
 
 /** Settings of the window's workspace. */
-export const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "Workspace", icon: "folder", keywords: "workspace name rename delete window mcp servers tools bots telegram notifications" }];
+export const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "Workspace", icon: "folder", keywords: "workspace name rename delete window mcp servers tools bots" }];
 
 /** Launchpad's settings, shared by every workspace. */
 export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [

@@ -97,7 +97,7 @@ Home reads its own disk **[R]**:
 
 Desktop shell and local-window features **[R]**:
 - `desktop/` only talks to `127.0.0.1:7317/7318` and starts an `all` daemon. Remove it (an installed PWA covers a window on Home). With it go `/api/open` and `/api/window` (`crates/api/src/api.rs:625-642`, `web/src/lib/platform.ts:12-40`, `web/src/lib/workspace.ts:93-105`), "This desktop app" in Devices, `[commands] browser`, and the New window button.
-- Desktop notifications from the daemon (`crates/core/src/notify.rs:86-110`, `[agents] notify`, the Settings card): pop up on whichever machine runs the daemon, never on Home. Remove; Telegram stays.
+- Desktop notifications from the daemon (`crates/core/src/notify.rs:86-110`, `[agents] notify`, the Settings card): pop up on whichever machine runs the daemon, never on Home. Remove.
 
 Settings **[R]**:
 - `RunnersView.tsx:33-38`: the "runs everything in one process" page. Remove.

@@ -1,5 +1,5 @@
 //! Incoming hooks on Home: `POST /hooks/<id>` with `X-Launchpad-Hook-Secret: <secret>` sends a message to a bot. The secret is shown once at creation; Home keeps only its SHA-256 and compares in constant
-//! time. A hook accepts at most one message every ten seconds. A message to a busy thread (and Telegram's) waits
+//! time. A hook accepts at most one message every ten seconds. A message to a busy thread waits
 //! in `queued_message` for the end of its turn. The message is a fixed template naming the hook,
 //! then the request body (JSON pretty-printed, at most 16 KB) in a fenced block, marked as data.
 //!
@@ -198,7 +198,7 @@ pub async fn receive(app: &App, id: &str, secret: Option<&str>, hops_header: Opt
     let from = MessageFrom { kind: SenderKind::Hook, id: hook.id.clone(), name: hook.name.clone(), hops, ..Default::default() };
     // One thread per hook: its messages continue one conversation, in parallel with the bot's others.
     let to = bot_threads::route(Source::Hook { id: &hook.id, name: &hook.name });
-    let d = deliver_from(app, hook.target.clone(), to, text, automatic, false, Some(from)).await.map_err(|e| Refused(503, format!("{e:#}")))?;
+    let d = deliver_from(app, hook.target.clone(), to, text, automatic, Some(from)).await.map_err(|e| Refused(503, format!("{e:#}")))?;
     hook.last_at = Some(now_ms());
     hook.count += 1;
     hook.last_session = d.session.as_ref().map(|s| s.id.clone()).or(hook.last_session);
@@ -208,7 +208,7 @@ pub async fn receive(app: &App, id: &str, secret: Option<&str>, hops_header: Opt
 
 // ---------------------------------------------------------------- queued messages
 
-/// A message from a hook, Telegram, a bot channel or another agent, waiting for the end of the current turn of its
+/// A message from a hook, a bot channel or another agent, waiting for the end of the current turn of its
 /// thread (or for a free slot of the bot, `bot_threads::at_cap`).
 #[derive(Serialize, Deserialize)]
 struct Queued {
@@ -223,9 +223,7 @@ struct Queued {
     attachments: Vec<FileAttachment>,
     text: String,
     automatic: bool,
-    /// The answer goes back to the Telegram chat of the bot's workspace.
-    telegram: bool,
-    /// The hook or bot channel that sent it, with its hop count (None: the owner's Telegram message).
+    /// The hook or bot channel that sent it, with its hop count.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     from: Option<MessageFrom>,
     /// A bot channel's delivery (`delivery`): its rows, marked sent or skipped when the entry goes.
@@ -279,7 +277,7 @@ pub enum Outcome {
     Joined(i64),
 }
 
-/// Where a message from a hook or Telegram went.
+/// Where a message from a hook went.
 pub struct Delivered {
     /// The session it went to, or the busy session it waits for (None: a new session starts later).
     pub session: Option<Session>,
@@ -327,19 +325,13 @@ async fn send(app: &App, q: &Queued) -> Result<Session> {
     }
 }
 
-/// Sends a hook or Telegram message to a bot's thread, or queues it (in order, in state.db) while
-/// the thread is busy, or, for an automatic one (a hook), while its quota is not confirmed. A queued message is sent
-/// once its turn ends (and its quota is confirmed), never into a running turn. The owner's (Telegram) messages never
-/// wait for quota: they go ahead of hook messages that wait only for it.
-/// `to`: the bot's thread (`bot_threads::route`).
-pub async fn deliver(app: &App, target: Target, to: To, text: String, automatic: bool, telegram: bool) -> Result<Delivered> {
-    deliver_from(app, target, to, text, automatic, telegram, None).await
-}
-
-/// `deliver` with the message's sender (a hook, with its hop count).
-pub async fn deliver_from(app: &App, target: Target, to: To, text: String, automatic: bool, telegram: bool, from: Option<MessageFrom>) -> Result<Delivered> {
+/// Sends a hook message to a bot's thread, or queues it (in order, in state.db) while the thread is busy, or, for an
+/// automatic one, while its quota is not confirmed. A queued message is sent once its turn ends (and its quota is
+/// confirmed), never into a running turn. `to`: the bot's thread (`bot_threads::route`); `from`: the hook, with its
+/// hop count.
+pub async fn deliver_from(app: &App, target: Target, to: To, text: String, automatic: bool, from: Option<MessageFrom>) -> Result<Delivered> {
     let thread = resolve(app, &target, &to, &text).await?;
-    let q = Queued { target, thread: Some(thread), context: None, attachments: vec![], text, automatic, telegram, from, channel: None, due: None, hold_while_paused: false };
+    let q = Queued { target, thread: Some(thread), context: None, attachments: vec![], text, automatic, from, channel: None, due: None, hold_while_paused: false };
     match enqueue(app, q, None).await? {
         (Outcome::Sent(s), _) => Ok(Delivered { session: Some(*s), queued: false }),
         (_, cur) => Ok(Delivered { session: cur, queued: true }),
@@ -356,7 +348,7 @@ pub async fn deliver_channel(app: &App, bot_id: &str, text: String, automatic: b
     let target = Target::Bot { id: bot_id.into() };
     let to = bot_threads::route(Source::Channel { id: &part.channel, title: &from.name });
     let thread = resolve(app, &target, &to, &from.name).await?;
-    let q = Queued { target, thread: Some(thread), context: None, attachments, text, automatic, telegram: false, from: Some(from), channel: Some(part), due: None, hold_while_paused: false };
+    let q = Queued { target, thread: Some(thread), context: None, attachments, text, automatic, from: Some(from), channel: Some(part), due: None, hold_while_paused: false };
     Ok(enqueue(app, q, Some(Box::new(combined))).await?.0)
 }
 
@@ -366,7 +358,7 @@ pub async fn deliver_channel(app: &App, bot_id: &str, text: String, automatic: b
 pub async fn deliver_reply(app: &App, bot_id: &str, to: To, text: String, from: MessageFrom) -> Result<Outcome> {
     let target = Target::Bot { id: bot_id.into() };
     let thread = resolve(app, &target, &to, &from.name).await?;
-    let q = Queued { target, thread: Some(thread), context: Some(MessageContext::default()), attachments: vec![], text, automatic: true, telegram: false, from: Some(from), channel: None, due: None, hold_while_paused: false };
+    let q = Queued { target, thread: Some(thread), context: Some(MessageContext::default()), attachments: vec![], text, automatic: true, from: Some(from), channel: None, due: None, hold_while_paused: false };
     Ok(enqueue(app, q, None).await?.0)
 }
 
@@ -384,7 +376,7 @@ pub async fn queue_for_slot(app: &App, bot_id: &str, thread: String, text: Strin
     let target = Target::Bot { id: bot_id.into() };
     let key = key_of(&target, &thread);
     let from = context.from.clone();
-    let q = Queued { target, thread: Some(thread), context: Some(MessageContext { from: None, ..context }), attachments, text, automatic: true, telegram: false, from, channel: None, due: None, hold_while_paused: false };
+    let q = Queued { target, thread: Some(thread), context: Some(MessageContext { from: None, ..context }), attachments, text, automatic: true, from, channel: None, due: None, hold_while_paused: false };
     let _lock = DELIVERY.lock().await;
     let json = serde_json::to_string(&q)?;
     app.state_db.call(move |c| Ok(c.execute("INSERT INTO queued_message (target, at, json) VALUES (?1, ?2, ?3)", rusqlite::params![key, now_ms(), json])?)).await?;
@@ -447,7 +439,7 @@ pub async fn schedule(app: &App, bot_id: &str, to: To, at: i64, text: String, at
     let sender = from.as_ref().map(|f| f.id.clone());
     let waiting = scheduled(app, None).await?.into_iter().filter(|m| m.from == sender).count();
     ensure!(waiting < SCHEDULE_MAX_WAITING, "{waiting} scheduled messages already wait: cancel one first (`launchpad bot scheduled`)");
-    let q = Queued { target: Target::Bot { id: bot_id.into() }, thread: None, context: Some(MessageContext { from: None, ..context }), attachments, text, automatic, telegram: false, from, channel: None, due: Some(Due { at, created_at: now, to }), hold_while_paused: false };
+    let q = Queued { target: Target::Bot { id: bot_id.into() }, thread: None, context: Some(MessageContext { from: None, ..context }), attachments, text, automatic, from, channel: None, due: Some(Due { at, created_at: now, to }), hold_while_paused: false };
     let key = scheduled_key(bot_id);
     let json = serde_json::to_string(&q)?;
     let _lock = DELIVERY.lock().await;
@@ -632,9 +624,9 @@ pub struct QueuedMessage {
     pub n: i64,
     #[ts(type = "number")]
     pub at: i64,
-    /// "telegram", "hook" or "channel".
+    /// "hook", "channel", "agent" or "scheduled".
     pub source: String,
-    /// The message without Launchpad's own lines: the Telegram text, or the hook's name and the start of its body.
+    /// The message without Launchpad's own lines: a hook's name and the start of its body.
     pub text: String,
     /// The bot's thread it goes to.
     pub thread: String,
@@ -657,8 +649,7 @@ fn preview(q: &Queued) -> QueuedMessage {
     if q.context.is_some() {
         return row("agent", q.text.chars().take(300).collect());
     }
-    let text = if q.telegram { q.text.strip_suffix(crate::telegram::FROM_TELEGRAM).unwrap_or(&q.text).to_string() } else { hook_preview(&q.text) };
-    row(if q.telegram { "telegram" } else { "hook" }, text)
+    row("hook", hook_preview(&q.text))
 }
 
 /// A hook message (`message`) as a waiting row shows it: its first sentence, then the start of the fenced body on
@@ -821,12 +812,6 @@ async fn drain(app: &App) -> Result<()> {
         match sent {
             Ok(s) => {
                 last.insert(key, (s.id.clone(), s.status_since, now_ms()));
-                // The answer goes to the Telegram chat of the bot's workspace, where the message came from.
-                if q.telegram
-                    && let Some(ws) = telegram_workspace(app, &q.target).await
-                {
-                    crate::telegram::await_reply(app, &ws, &s).await?;
-                }
             }
             Err(e) => {
                 let text = format!("A queued message could not be delivered and is not sent again: {e:#}");
@@ -834,21 +819,10 @@ async fn drain(app: &App) -> Result<()> {
                     launchpad_core::sessions::notice_anywhere(app, &c.id, &text).await;
                 }
                 tracing::warn!("queued message for {key}: {e:#}");
-                if q.telegram
-                    && let Some(ws) = telegram_workspace(app, &q.target).await
-                {
-                    let _ = crate::telegram::say(app, &ws, &format!("Launchpad could not send your queued message: {e:#}")).await;
-                }
             }
         }
     }
     Ok(())
-}
-
-/// The workspace whose Telegram chat sent a message to this target: the bot's.
-async fn telegram_workspace(app: &App, t: &Target) -> Option<String> {
-    let Target::Bot { id } = t;
-    crate::telegram::bot_workspace(app, id).await
 }
 
 /// Home: delivers queued messages when their thread is idle.
@@ -902,7 +876,7 @@ mod tests {
     fn a_later_channel_message_joins_the_waiting_one() {
         let from = |hops| Some(MessageFrom { kind: SenderKind::Channel, id: "c1".into(), hops, ..Default::default() });
         let part = |m: i64, d: i64| Some(ChannelPart { channel: "c1".into(), first: m, last: m, deliveries: vec![d], digest: false });
-        let mut w = Queued { target: Target::Bot { id: "b".into() }, thread: None, context: None, attachments: vec![], text: "41".into(), automatic: true, telegram: false, from: from(2), channel: part(41, 7), due: None, hold_while_paused: false };
+        let mut w = Queued { target: Target::Bot { id: "b".into() }, thread: None, context: None, attachments: vec![], text: "41".into(), automatic: true, from: from(2), channel: part(41, 7), due: None, hold_while_paused: false };
         let q = Queued { text: "42".into(), from: from(3), channel: part(42, 9), ..serde_json::from_str(&serde_json::to_string(&w).unwrap()).unwrap() };
         assert_eq!(join(&mut w, &q, Box::new(|c: &ChannelPart| format!("{}..{} x{}", c.first, c.last, c.deliveries.len()))), 7);
         assert_eq!(w.channel, Some(ChannelPart { channel: "c1".into(), first: 41, last: 42, deliveries: vec![7, 9], digest: false }));
@@ -929,7 +903,7 @@ mod tests {
     fn a_combined_channel_delivery_keeps_a_run_only_when_all_its_messages_have_it() {
         let from = |run: Option<&str>| Some(MessageFrom { kind: SenderKind::Channel, id: "c1".into(), hops: 1, run: run.map(str::to_string), ..Default::default() });
         let part = |m: i64| Some(ChannelPart { channel: "c1".into(), first: m, last: m, deliveries: vec![m], digest: false });
-        let entry = |run, m| Queued { target: Target::Bot { id: "b".into() }, thread: None, context: None, attachments: vec![], text: String::new(), automatic: true, telegram: false, from: from(run), channel: part(m), due: None, hold_while_paused: false };
+        let entry = |run, m| Queued { target: Target::Bot { id: "b".into() }, thread: None, context: None, attachments: vec![], text: String::new(), automatic: true, from: from(run), channel: part(m), due: None, hold_while_paused: false };
         let mut w = entry(Some("hubert:r1"), 1);
         join(&mut w, &entry(Some("hubert:r1"), 2), Box::new(|_: &ChannelPart| String::new()));
         assert_eq!(w.from.as_ref().unwrap().run.as_deref(), Some("hubert:r1"));
@@ -955,7 +929,7 @@ mod tests {
         assert!(check_due(999 + SCHEDULE_MAX_MS + 1, 999).is_err());
         let from = MessageFrom { kind: SenderKind::Bot, id: "sender".into(), name: "Scout".into(), hops: 2, session: Some("s1".into()), ..Default::default() };
         for to in [To::Conversation { id: "b1:t1".into(), title: "Scout".into() }, To::Key { key: "agent:s1".into(), title: "Scout".into() }, To::Thread("t9".into())] {
-            let q = Queued { target: Target::Bot { id: "b2".into() }, thread: None, context: Some(MessageContext::default()), attachments: vec![], text: "check CI\nagain".into(), automatic: true, telegram: false, from: Some(from.clone()), channel: None, due: Some(Due { at: 7_200_000, created_at: 0, to: to.clone() }), hold_while_paused: false };
+            let q = Queued { target: Target::Bot { id: "b2".into() }, thread: None, context: Some(MessageContext::default()), attachments: vec![], text: "check CI\nagain".into(), automatic: true, from: Some(from.clone()), channel: None, due: Some(Due { at: 7_200_000, created_at: 0, to: to.clone() }), hold_while_paused: false };
             // Stored as JSON in state.db: read back the same after a restart.
             let back: Queued = serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap();
             assert_eq!(back.due.as_ref().map(|d| (&d.to, d.at)), Some((&to, 7_200_000)));
@@ -964,10 +938,10 @@ mod tests {
             assert_eq!((row.source.as_str(), row.due_at, row.text.as_str()), ("scheduled", Some(7_200_000), "check CI\nagain"));
         }
         // Entries written before scheduled messages have no due time.
-        let old: Queued = serde_json::from_str(r#"{"target":{"kind":"bot","id":"b"},"text":"x","automatic":true,"telegram":false}"#).unwrap();
+        let old: Queued = serde_json::from_str(r#"{"target":{"kind":"bot","id":"b"},"text":"x","automatic":true}"#).unwrap();
         assert!(old.due.is_none() && !old.hold_while_paused);
         // Once due, it keeps waiting while its bot is paused (stored with the entry).
-        let held: Queued = serde_json::from_str(r#"{"target":{"kind":"bot","id":"b"},"thread":"t","text":"x","automatic":true,"telegram":false,"hold_while_paused":true}"#).unwrap();
+        let held: Queued = serde_json::from_str(r#"{"target":{"kind":"bot","id":"b"},"thread":"t","text":"x","automatic":true,"hold_while_paused":true}"#).unwrap();
         assert!(held.hold_while_paused && serde_json::to_string(&held).unwrap().contains("hold_while_paused"));
         assert_eq!(scheduled_note(&Due { at: 7_200_000, created_at: 0, to: To::Thread("t".into()) }), "(Scheduled message: written 1970-01-01 00:00 UTC, due 1970-01-01 02:00 UTC.)");
     }

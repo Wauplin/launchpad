@@ -126,7 +126,7 @@ With **Notifications** on (the default), the companion shows a desktop notificat
 - After a gap (offline, a dropped stream), new items become one summary: "While you were away: 2 asking, 1 failed".
 - Connection problems notify once each: offline for over two minutes (then “Launchpad is back online”), Home starting for over two minutes, sign in again, device removed, Home too old.
 
-`/dnd` in the Spotlight pauses them for one hour. An answer or a question of an ask you sent from the Spotlight also notifies you while the Spotlight is hidden. Notifications carry no token in their links. Home itself still sends no desktop notifications; Telegram is unchanged.
+`/dnd` in the Spotlight pauses them for one hour. An answer or a question of an ask you sent from the Spotlight also notifies you while the Spotlight is hidden. Notifications carry no token in their links. Home itself still sends no desktop notifications.
 
 GNOME Shell shows an app's notifications only when the app's desktop file (`dev.launchpad.Desktop.desktop`) is installed. Without it, GNOME refuses them. The package installs it (see [Install](#install)).
 

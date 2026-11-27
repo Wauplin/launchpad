@@ -6,7 +6,7 @@ Launchpad is a personal web app (a PWA; the daemon and runners on Linux) with on
 
 ## Where things are
 
-- `crates/` (layout in [docs/architecture.md](docs/architecture.md#code-layout)): `core` (domain, harness contract, action list `actions.rs`, Today `today.rs`, exit routes `egress.rs`), `harness` (adapters), `channels` (connections, Telegram, hooks, bot channels), `github` (Suggestions, ledger, extension context, notes), `automation` (routines, schedules, proposals, activity, oracles, folios), `recall` (the Funes search index over past sessions), `setup`, `http`, `api` (JSON routes), `server` (auth, runner tunnel, WebSockets, embedded UI), `cli` (the `launchpad` binary, `extensions.rs` connects the crates).
+- `crates/` (layout in [docs/architecture.md](docs/architecture.md#code-layout)): `core` (domain, harness contract, action list `actions.rs`, Today `today.rs`, exit routes `egress.rs`), `harness` (adapters), `channels` (connections, hooks, bot channels, phone push), `github` (Suggestions, ledger, extension context, notes), `automation` (routines, schedules, proposals, activity, oracles, folios), `recall` (the Funes search index over past sessions), `setup`, `http`, `api` (JSON routes), `server` (auth, runner tunnel, WebSockets, embedded UI), `cli` (the `launchpad` binary, `extensions.rs` connects the crates).
 - `web/`: React app (`web/src/features/<feature>/`, shared UI in `web/src/components/ui.tsx`, phone shell `web/src/mobile/`, demo `web/src/demo/`). `extension/`: Chrome extension. `desktop/`: Linux desktop companion (own Cargo workspace). `deploy/hf-home/`: Home on a Hugging Face Space. `packaging/`: installers. `skills/launchpad/SKILL.md`: the agent skill for the CLI.
 - `docs/`: user documentation by feature, plus `architecture.md`, `development.md`, `harness-adapters.md`, `glossary.md` and `invariants/`. `.claude/skills/implement-review-docs/`: the skill for plans with several steps.
 
@@ -39,7 +39,7 @@ Run only what your change can break; CI runs everything.
 - **Never stop or restart the production Home (port 7317) or runner (port 7320)** unless the owner asks: the runner runs the agents, maybe including you.
 - **Nothing reaches GitHub without an owner click.** Exceptions: the pull request of the owner's own launch with When done = Draft PR or Open PR, a bot's draft publication of its own Local PR, and an agent's own CI approval (`launchpad ci approve`, checked on Home). Automated checks never post, review, label, merge, publish or change GitHub items. Agents write comments and reviews only through `launchpad suggest comment|review|action`; the CLI never publishes. Use throwaway local bare remotes for publication checks.
 - Automated checks clean up: close terminals, pause or delete test routines, cancel test schedules, follow-ups and HF jobs, discard test worktrees, close browsers and servers. Never type into harness TUIs.
-- Never send real Outbox messages, call Telegram with a real token, post to a real Slack, or create, update or delete a real Space or bucket in checks. Use a scratch Home, a throwaway `--space`, local folder destinations and local fakes.
+- Never send real Outbox messages, send a real phone wake-up (FCM), post to a real Slack, or create, update or delete a real Space or bucket in checks. Use a scratch Home, a throwaway `--space`, local folder destinations and local fakes.
 - Never change the real machine's configuration, refresh the Claude OAuth token, log in or copy credentials on the owner's behalf, or run a real agent CLI, runner or Home update in checks.
 - Never retry an uncertain operation automatically after a crash (launches, sends, merges, GitHub posts, scheduled runs): show the uncertainty and let the owner check.
 
@@ -75,7 +75,7 @@ Before changing an area, read its page (index: [docs/invariants/README.md](docs/
 - GitHub (live reads, extension context, Push to PR, attribution, ledger): [docs/invariants/github.md](docs/invariants/github.md)
 - Bots, threads, routing, conversations, senders, Chats: [docs/invariants/bots.md](docs/invariants/bots.md)
 - Bot channels and DMs: [docs/invariants/channels.md](docs/invariants/channels.md)
-- Connections, Outbox, Telegram, hooks: [docs/invariants/connections.md](docs/invariants/connections.md)
+- Connections, Outbox, hooks, phone notifications: [docs/invariants/connections.md](docs/invariants/connections.md)
 - Ask Launchpad, Launchpad CLI access levels, proposals: [docs/invariants/proposals.md](docs/invariants/proposals.md)
 - Oracles and routine gates: [docs/invariants/oracles.md](docs/invariants/oracles.md)
 - Recall (the derived search index over past sessions): [docs/invariants/recall.md](docs/invariants/recall.md)

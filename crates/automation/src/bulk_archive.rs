@@ -82,7 +82,7 @@ pub struct ArchiveOutcome {
     pub failed: Vec<Kept>,
 }
 
-/// Pure: what started a session, None for the owner's (their chats, Telegram, GitHub item and folio threads, their
+/// Pure: what started a session, None for the owner's (their chats, GitHub item and folio threads, their
 /// launches and accepted cards). `thread` is a bot session's thread row, `main` the first thread of its conversation.
 pub fn origin(s: &Session, thread: Option<&BotThread>, main: Option<&BotThread>) -> Option<&'static str> {
     fn of_key(key: Option<&str>) -> Option<&'static str> {
@@ -381,8 +381,8 @@ mod tests {
         for (key, want) in [("routine:nightly.toml", "routine"), ("channel:c1", "channel"), ("agent:s9", "agent"), ("hook:h1", "hook")] {
             assert_eq!(origin(&s, Some(&thread("t", Some(key), "b:t")), None), Some(want), "{key}");
         }
-        // The owner's chat, Telegram, a GitHub item's or a folio's thread: never.
-        for key in [None, Some("telegram"), Some("github:o/r#1"), Some("folio:f1")] {
+        // The owner's chat, a GitHub item's or a folio's thread: never.
+        for key in [None, Some("github:o/r#1"), Some("folio:f1")] {
             assert_eq!(origin(&s, Some(&thread("t", key, "b:t")), None), None, "{key:?}");
         }
         // No thread row: kept.

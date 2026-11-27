@@ -3059,21 +3059,6 @@ data class TaskWorktree(
 )
 
 @Serializable
-data class TelegramStatus(
-    val workspace_id: String = "",
-    val configured: Boolean = false,
-    val bot_username: String? = null,
-    val bound: Boolean = false,
-    val chat_name: String? = null,
-    val code: String? = null,
-    val link: String? = null,
-    val code_expires_at: Double? = null,
-    val notify: Boolean = false,
-    val titles: Boolean = false,
-    val error: String? = null,
-)
-
-@Serializable
 data class TemplateHelp(
     val id: String = "",
     val token_url: String = "",

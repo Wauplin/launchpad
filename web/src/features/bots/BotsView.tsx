@@ -23,7 +23,6 @@ import { BotChat, BotModelChoice } from "@/features/chat/BotChat";
 import { ArchiveThreadButton, NEW_THREAD, useShownThread, useThreadRows } from "@/features/chat/BotThreads";
 import { useChannelName } from "@/lib/channels";
 import type { ConnectionsOverview } from "@/features/settings/ConnectionsView";
-import { useTelegram } from "@/features/settings/TelegramSettings";
 import { BotAvatar } from "@/components/BotAvatar";
 import { useHarnessName } from "@/components/HarnessMark";
 import { BotIdentity } from "./BotIdentity";
@@ -37,7 +36,7 @@ import type { VaultOverview } from "@/gen/VaultOverview";
 import { api } from "@/lib/api";
 import { runAction } from "@/lib/actions";
 import { ActionButton } from "@/components/ActionButton";
-import { askTarget, botProfile, botThread, currentSession, findThread, instructionsUpdated, landingThread, rememberThread, rotationReason, useBots, useBotThreads, useBotTemplates } from "@/lib/bots";
+import { botProfile, botThread, currentSession, findThread, instructionsUpdated, landingThread, rememberThread, rotationReason, useBots, useBotThreads, useBotTemplates } from "@/lib/bots";
 import { chatOf } from "@/lib/chatList";
 import { conversationStatus } from "@/lib/conversations";
 import { isQuotaPaused, isRunning, isSleeping, sleepUntil } from "@/lib/sessionStatus";
@@ -516,7 +515,7 @@ function InstructionsEditor({ bot, older, onSave }: { bot: Bot; older: boolean; 
 const TRIGGER_ICON: Record<CronAgent["trigger"]["kind"], IconName> = { schedule: "clock", session_done: "agents", failure: "alert", channel: "comment" };
 
 /** Every way the bot starts on its own, in one list: its routines (with their last runs), incoming hooks that message
- * it and its Telegram command, with one Pause for all of them. */
+ * it, with one Pause for all of them. */
 function TriggersSection({ bot, routines, onEditFile, openThread, threadKeys }: { bot: Bot; routines: CronAgent[]; onEditFile: (path: string) => void; openThread: (key: string) => void; threadKeys: Set<string> }) {
   const qc = useQueryClient();
   const projects = useProjects().data ?? [];
@@ -524,8 +523,6 @@ function TriggersSection({ bot, routines, onEditFile, openThread, threadKeys }: 
   const navigate = useNavigate();
   const connections = useQuery({ queryKey: ["connections"], queryFn: () => api.get<ConnectionsOverview>("/api/connections"), retry: false }).data;
   const hooks = (connections?.hooks ?? []).filter((h) => h.target.kind === "bot" && h.target.id === bot.id);
-  const telegram = !!useTelegram(bot.workspace_id).data?.bound;
-  const askBot = askTarget(useBots().data ?? [], bot.workspace_id)?.id === bot.id;
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const harness = profiles.find((p) => p.id === bot.settings.profile)?.harness ?? null;
@@ -555,11 +552,7 @@ function TriggersSection({ bot, routines, onEditFile, openThread, threadKeys }: 
         </Link>
         {threadKeys.has(`hook:${h.id}`) && <button className="btn btn-sm flex-none" title="Its messages go to a chat of their own" onClick={() => openThread(`hook:${h.id}`)}>Open its chat</button>}
       </div>)}
-      {telegram && <Link to="/settings/workspace" className={row} title="The workspace's Telegram chat: /command followed by a task messages this bot">
-        <Icon name="send" size={12} className="flex-none text-ink-3" />
-        <span className="min-w-0 flex-1"><span className="block truncate">Telegram /{bot.slug.replace(/-/g, "_")}</span><span className="block truncate text-[12px] text-ink-3">From the workspace's chat{askBot ? " · plain text too" : ""}</span></span>
-      </Link>}
-      {!routines.length && !hooks.length && !telegram && !adding && <p className="m-0 text-[12px] text-ink-3">No trigger yet: {bot.settings.name} runs only when you message it.</p>}
+      {!routines.length && !hooks.length && !adding && <p className="m-0 text-[12px] text-ink-3">No trigger yet: {bot.settings.name} runs only when you message it.</p>}
     </div>
     {adding ? <NewRoutine bot={bot} harness={harness} onDone={() => setAdding(false)} />
       : <button className="btn btn-sm w-fit" data-tour="bots.routine-new" title="A routine: on a schedule, on GitHub activity, when another agent is done, on a Launchpad failure or on a new message in a channel. Incoming hooks are created in Settings → Connections." onClick={() => setAdding(true)}><Icon name="plus" size={12} />New trigger</button>}
