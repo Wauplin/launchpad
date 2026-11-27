@@ -235,6 +235,16 @@ export function IconButton({ icon, label, className = "", children, ...props }: 
   );
 }
 
+/**
+ * Props for a message box's Send button: a press keeps the focus in the text field. On a phone, a tap that takes the
+ * focus closes the keyboard and shows the tab bar again before the click, so the layout moves and the tap misses
+ * Send; keeping the focus sends with one tap and leaves the keyboard open for the next message.
+ */
+export const keepFocus = {
+  onPointerDown: (e: { preventDefault: () => void }) => e.preventDefault(),
+  onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault(),
+};
+
 /** The bottom part of a ⋯ menu that holds a ConfirmButton (its consequence shows in the menu). */
 export function MenuSection({ children }: { children: ReactNode }) {
   return <div className="mt-0.5 border-t border-line-2 px-2 pt-1.5 pb-0.5 first:mt-0 first:border-t-0">{children}</div>;

@@ -60,34 +60,63 @@ function Tab({ to, icon, label, count, highlight, exact = false, active, tour, o
   );
 }
 
-/** A text field has the focus: the keyboard is up, so the tab bar hides (the viewport meta resizes the layout). */
+const isField = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "range", "file", "color"].includes((t as HTMLInputElement).type)));
+
+/** A text field has the focus: the keyboard is up, so the tab bar hides. A field that loses the focus without a
+ * focusout (disabled or removed while focused, in some browsers) would hide the tab bar for good: the state is read
+ * again from `document.activeElement` whenever the viewport changes (the keyboard opens or closes) and on each tap. */
 function useTyping() {
   const [typing, setTyping] = useState(false);
   useEffect(() => {
-    const field = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "range", "file", "color"].includes((t as HTMLInputElement).type)));
-    const onIn = (e: FocusEvent) => setTyping(field(e.target));
-    const onOut = (e: FocusEvent) => { if (!field(e.relatedTarget)) setTyping(false); };
+    const sync = () => setTyping(isField(document.activeElement));
+    const onIn = (e: FocusEvent) => setTyping(isField(e.target));
+    const onOut = (e: FocusEvent) => { if (!isField(e.relatedTarget)) setTyping(false); };
+    const later = () => setTimeout(sync, 0);
     document.addEventListener("focusin", onIn);
     document.addEventListener("focusout", onOut);
-    return () => { document.removeEventListener("focusin", onIn); document.removeEventListener("focusout", onOut); };
+    document.addEventListener("pointerup", later, true);
+    window.addEventListener("resize", sync);
+    window.visualViewport?.addEventListener("resize", sync);
+    return () => {
+      document.removeEventListener("focusin", onIn);
+      document.removeEventListener("focusout", onOut);
+      document.removeEventListener("pointerup", later, true);
+      window.removeEventListener("resize", sync);
+      window.visualViewport?.removeEventListener("resize", sync);
+    };
   }, []);
   return typing;
 }
 
-/** The visual viewport shrinks for the keyboard even when the layout viewport / dvh does not. */
-function useTerminalViewport(enabled: boolean) {
-  const [viewport, setViewport] = useState<{ height: number; top: number; keyboard: boolean } | null>(null);
+type Viewport = { height: number; top: number; keyboard: boolean };
+
+/** The visible part of the page. iOS Safari ignores `interactive-widget=resizes-content`: the keyboard covers the
+ * bottom of the layout viewport (and `100dvh`) and the browser scrolls the page under it, so the message box and its
+ * Send button end up behind the keyboard. While the keyboard is up (and always on Terminals, for the key bar), the
+ * shell is pinned to the visual viewport. Once the keyboard closes, a scroll the browser left behind is undone: the
+ * page never scrolls (body overflow hidden), and a leftover offset shifts every tap away from what it shows, so the
+ * app seems frozen until a reload. Android Chrome resizes the layout itself: there the two heights stay equal. */
+function useVisualViewport() {
+  const [viewport, setViewport] = useState<Viewport | null>(null);
   useLayoutEffect(() => {
     const vv = window.visualViewport;
-    if (!enabled || !vv) { setViewport(null); return; }
-    const update = () => setViewport({ height: vv.height, top: vv.offsetTop, keyboard: window.innerHeight - vv.height > 120 });
+    if (!vv) return;
+    let open = false;
+    const update = () => {
+      // A pinch zoom also shrinks the visual viewport: only an unzoomed page counts the difference as the keyboard.
+      const keyboard = vv.scale < 1.05 && window.innerHeight - vv.height > 120;
+      if (open && !keyboard && (window.scrollX || window.scrollY)) window.scrollTo(0, 0);
+      open = keyboard;
+      const next = { height: Math.round(vv.height), top: Math.round(vv.offsetTop), keyboard };
+      setViewport((v) => (v && v.height === next.height && v.top === next.top && v.keyboard === next.keyboard ? v : next));
+    };
     update();
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
     window.addEventListener("resize", update);
     return () => { vv.removeEventListener("resize", update); vv.removeEventListener("scroll", update); window.removeEventListener("resize", update); };
-  }, [enabled]);
-  return enabled ? viewport : null;
+  }, []);
+  return viewport;
 }
 
 export function MobileShell() {
@@ -127,7 +156,8 @@ export function MobileShell() {
   // More's count: what needs you among its places (failed routines).
   const moreNeeds = useTodayHere().items.filter((i) => i.kind === "routine").length;
   const terminals = path.startsWith("/terminals");
-  const viewport = useTerminalViewport(terminals);
+  const visual = useVisualViewport();
+  const viewport = visual && (terminals || visual.keyboard) ? visual : null;
   const workspaceName = scope.workspace.name;
   // The top bar a detail page fills (`PhoneBar`); while one is mounted, the section bar hides.
   const [barEl, setBarEl] = useState<HTMLElement | null>(null);

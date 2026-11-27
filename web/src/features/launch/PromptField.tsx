@@ -33,11 +33,11 @@ const SuggestionRow = memo(function SuggestionRow({ item, active, id, onPick }: 
   </button>;
 });
 
-export function PromptField({ document: doc, onDocumentChange, root, harness, profile, repo, projectId, sessionId, relativePaths = true, autocomplete = true, inputRef, onPaste, onSend, onSubmit, disabled, compact = false, placeholder }: {
+export function PromptField({ document: doc, onDocumentChange, root, harness, profile, repo, projectId, sessionId, relativePaths = true, autocomplete = true, inputRef, onPaste, onSend, onSubmit, disabled, readOnly, compact = false, placeholder }: {
   document: PromptDocument; onDocumentChange: (doc: PromptDocument) => void;
   root: string | null; harness: string | null; profile: string | null; repo: string | null; projectId?: string | null; sessionId?: string;
   relativePaths?: boolean; autocomplete?: boolean; inputRef?: React.RefObject<HTMLTextAreaElement | null>;
-  onPaste?: React.ClipboardEventHandler<HTMLTextAreaElement>; onSend?: () => void; /** Ctrl/Cmd+Enter (else onSend). */ onSubmit?: () => void; disabled?: boolean; compact?: boolean; placeholder?: string;
+  onPaste?: React.ClipboardEventHandler<HTMLTextAreaElement>; onSend?: () => void; /** Ctrl/Cmd+Enter (else onSend). */ onSubmit?: () => void; disabled?: boolean; /** While a send runs: the field keeps the focus (and the phone keyboard). */ readOnly?: boolean; compact?: boolean; placeholder?: string;
 }) {
   const ownRef = useRef<HTMLTextAreaElement>(null), ref = inputRef ?? ownRef;
   const scroll = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null);
@@ -161,7 +161,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   const error = mention?.trigger === "@" ? files.error : mention?.trigger === "/" ? skills.error : gh.error;
   const warnings = mention?.trigger === "@" ? files.data?.unavailable.map((p) => `${p} unavailable`) : mention?.trigger === "/" ? skills.data?.warnings : [];
   return <>
-    <textarea ref={ref} disabled={disabled} value={doc.text} rows={compact ? 1 : 7} autoFocus={!compact} onPaste={pasteRef} placeholder={placeholder ?? "What should the agent do?\n@ files and folders · / skills · # context"}
+    <textarea ref={ref} disabled={disabled} readOnly={readOnly} value={doc.text} rows={compact ? 1 : 7} autoFocus={!compact} onPaste={pasteRef} placeholder={placeholder ?? "What should the agent do?\n@ files and folders · / skills · # context"}
       aria-label={compact ? "Message agent" : "Agent prompt"} aria-autocomplete="list" aria-expanded={!!mention} aria-controls={mention ? id : undefined} aria-activedescendant={mention && rows.length ? `${id}-${active}` : undefined}
       className={compact ? "max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none disabled:opacity-60" : "block min-h-[140px] w-full resize-none rounded-t-card bg-transparent px-2.5 pt-2 pb-2 text-[13px] leading-normal outline-none"}
       onChange={(e) => {

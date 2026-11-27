@@ -52,7 +52,7 @@ import { githubItemUrl, suggestionItemUrl } from "@/lib/githubLinks";
 import { openExternal } from "@/lib/platform";
 import { LOOK } from "@/features/today/TodayRows";
 import { MenuItem } from "@/components/Popover";
-import { RowActions } from "@/components/ui";
+import { keepFocus, RowActions } from "@/components/ui";
 import { usePhone } from "@/lib/phone";
 import { runAction } from "@/lib/actions";
 import { ACTIONS } from "@/gen/actions";
@@ -1007,7 +1007,7 @@ function BotComposer({ bot, threadId, onThread, current, askSession, conversatio
         {!answering && <MessageContextChips className="mb-1.5" value={context} onChange={setContext} disabled={busy || reading} />}
         {!text && !files.length && !withContext && !presets.length && !answering && !blocked && !busy && <QuickChips starters={bot.settings.starters ?? []} onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
         <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
-          <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
+          <textarea ref={ref} rows={1} value={text} readOnly={busy} disabled={blocked} aria-label={`Message ${bot.settings.name}`}
             placeholder={busyTurn ? `${bot.settings.name} is working: your message waits for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? "Type your answer…" : many ? `Message ${mainName} · @ for another bot…` : `Message ${bot.settings.name}…`}
             onChange={(e) => { setText(e.target.value); setMentionError(null); }}
             onPaste={(e) => {
@@ -1018,7 +1018,7 @@ function BotComposer({ bot, threadId, onThread, current, askSession, conversatio
             className="min-h-6 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
           {!answering && <MessageContextButton sessionId={current?.id ?? null} value={context} onChange={setContext} presets={{ presets: botPresets, selected: presets, onChange: setPresets }} attach={{ images: acceptsImages, onPick: () => fileRef.current?.click() }} disabled={busy || reading || blocked} />}
           {answering && <button className="iconbtn" title={`Attach files${acceptsImages ? " or images" : ""}. ${ATTACH_LIMITS}`} aria-label="Attach files" disabled={busy || reading || blocked} onClick={() => fileRef.current?.click()}><Icon name="clip" size={14} /></button>}
-          <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || reading || blocked || (!text.trim() && !files.length && !withContext && !presets.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>
+          <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" {...keepFocus} disabled={busy || reading || blocked || (!text.trim() && !files.length && !withContext && !presets.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>
         </div>
       </div>
     </div>

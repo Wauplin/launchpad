@@ -15,6 +15,7 @@ import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "./MessageA
 import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextChips } from "./MessageContext";
 import { PresetChips, usePresets } from "./MessagePresets";
 import { refusedFor } from "@/lib/maintenance";
+import { keepFocus } from "@/components/ui";
 
 export type PendingAsk = { request_id: string; count: number; permission: boolean } | null;
 
@@ -117,7 +118,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
           root={promptSession?.cwd ?? null} harness={promptSession?.harness ?? null} profile={promptSession?.launch_spec.profile ?? null}
           repo={promptProject?.gh_repo ?? promptProject?.gh_upstream ?? null} projectId={promptSession?.project_id} sessionId={sessionId}
           autocomplete={!ask && !!promptSession} onSend={() => void send()}
-          disabled={disabled || busy || reading}
+          disabled={disabled} readOnly={busy || reading}
           onPaste={(e) => {
             if (!acceptsImages || disabled || busy || readingRef.current) return;
             const pasted = pastedImages(e);
@@ -130,7 +131,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
         {ask && <button className="iconbtn" title={`Attach files or images (you can also drop files${acceptsImages ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
         </button>}
-        <button className="session-send iconbtn border-line! bg-paper" aria-label="Send" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : promptSession?.quota_pause ? "Queue for resume" : "Send"} disabled={disabled || busy || reading || (!message && !files.length && !hasMessageContext(context))} onClick={() => void send()}>
+        <button className="session-send iconbtn border-line! bg-paper" aria-label="Send" {...keepFocus} title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : promptSession?.quota_pause ? "Queue for resume" : "Send"} disabled={disabled || busy || reading || (!message && !files.length && !hasMessageContext(context))} onClick={() => void send()}>
           <Icon name="send" size={14} />
         </button>
       </div>

@@ -9,6 +9,7 @@ import { runAction } from "@/lib/actions";
 import { mentionAt } from "@/lib/channels";
 import { useKeptDraft } from "@/lib/keptDraft";
 import { usePhone } from "@/lib/phone";
+import { keepFocus } from "@/components/ui";
 
 /** Your message: Enter sends, Shift+Enter adds a line; `@` suggests the member bots (Enter or Tab picks the first).
  * Also under a Today row where a bot asks you (`replyTo`: the ask it answers; same kept draft as the page). */
@@ -55,7 +56,7 @@ export function ChannelComposer({ channel, onSent, replyTo, className = "border-
           </button>)}
         </div>}
         <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
-          <textarea ref={ref} rows={1} value={text} disabled={busy || closed} aria-label={`Message ${name}`} autoFocus={autoFocus}
+          <textarea ref={ref} rows={1} value={text} readOnly={busy} disabled={closed} aria-label={`Message ${name}`} autoFocus={autoFocus}
             placeholder={replyTo != null ? `Reply in ${dm ? "the DM" : channel.title}: your message answers this one` : dm ? "Message both bots…" : `Message ${channel.title}… (@ to wake a bot)`}
             onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart); setDismissed(null); }}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
@@ -65,7 +66,7 @@ export function ChannelComposer({ channel, onSent, replyTo, className = "border-
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
             }}
             className="min-h-6 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
-          <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || closed || !text.trim()} onClick={() => void send()}><Icon name="send" size={14} /></button>
+          <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" {...keepFocus} disabled={busy || closed || !text.trim()} onClick={() => void send()}><Icon name="send" size={14} /></button>
         </div>
       </div>
     </div>
