@@ -24,7 +24,7 @@ FROM debian:bookworm-slim AS funes-pin
 COPY deploy/hf-home/release.json /release.json
 RUN sed -n 's/.*"commit": *"\([0-9a-f]\{40\}\)".*/\1/p' /release.json > /commit && test -s /commit
 FROM rust:1.99.1-bookworm AS funes
-RUN apt-get update && apt-get install -y --no-install-recommends cmake protobuf-compiler && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends cmake protobuf-compiler libprotobuf-dev && rm -rf /var/lib/apt/lists/*
 COPY --from=funes-pin /commit /commit
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/funes-target \
     CARGO_TARGET_DIR=/funes-target cargo install --git https://github.com/huggingface/funes --rev "$(cat /commit)" --locked --root /funes -j 2 funes \
