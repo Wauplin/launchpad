@@ -1,0 +1,4 @@
+/* The embedded folio reader: the app theme, with Tailwind scanning every source (the build root is folio-embed/). */
+@import "../styles.css";
+@source "..";
+html, body, #root { height: 100%; }

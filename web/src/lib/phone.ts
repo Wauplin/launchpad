@@ -15,6 +15,8 @@ export function layoutChoice(): LayoutChoice {
 }
 
 function decide(): boolean {
+  // The folio reader embedded in a native app (`/folio-embed/`) always uses the phone paths.
+  if (typeof window !== "undefined" && (window as { __lpEmbed?: unknown }).__lpEmbed) return true;
   const choice = layoutChoice();
   if (choice !== "auto") return choice === "phone";
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;

@@ -17,7 +17,44 @@ export class ApiError extends Error {
   }
 }
 
+/** A native client's WebView (the Android app's folio reader, `/folio-embed/`): the app answers the page's writes
+ * itself, with its own credentials, so the page never holds a secret. `request` is answered later by
+ * `window.__launchpadNative.resolve(id, status, bodyText)`; status 0: the app could not reach Home. */
+type NativeBridge = { request: (id: string, method: string, path: string, body: string) => void; event: (json: string) => void };
+declare global {
+  interface Window {
+    LaunchpadNative?: NativeBridge;
+    __launchpadNative?: { resolve: (id: string, status: number, bodyText: string) => void; command: (json: string) => void };
+  }
+}
+const nativePending = new Map<string, (answer: { status: number; text: string }) => void>();
+let nativeNext = 1;
+
+/** Installs `window.__launchpadNative` (once); `command` is the embed entry's handler of the app's commands. */
+export function installNative(command: (json: string) => void) {
+  window.__launchpadNative = {
+    resolve: (id, status, bodyText) => { const done = nativePending.get(id); nativePending.delete(id); done?.({ status: Number(status) || 0, text: bodyText ?? "" }); },
+    command,
+  };
+}
+
+/** GET and HEAD stay plain fetches (the app intercepts them and adds its headers); every write goes through the bridge. */
+async function nativeRequest<T>(native: NativeBridge, method: string, path: string, body?: unknown): Promise<T> {
+  if (!window.__launchpadNative) installNative(() => {});
+  const id = `r${nativeNext++}`;
+  const answer = await new Promise<{ status: number; text: string }>((ok) => { nativePending.set(id, ok); native.request(id, method, daemonUrl(path), body === undefined ? "" : JSON.stringify(body)); });
+  if (answer.status === 0) throw new TypeError(answer.text || "Failed to fetch");
+  const okStatus = answer.status >= 200 && answer.status < 300;
+  let data;
+  try { data = answer.text ? JSON.parse(answer.text) : null; }
+  catch (e) { if (okStatus) throw e; data = { error: answer.text }; }
+  if (!okStatus) throw new ApiError(answer.status, data?.error ?? `HTTP ${answer.status}`, false, data && typeof data === "object" ? data as Record<string, unknown> : null);
+  return data as T;
+}
+
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const native = typeof window === "undefined" ? undefined : window.LaunchpadNative;
+  if (native && method !== "GET" && method !== "HEAD") return nativeRequest<T>(native, method, path, body);
   if (!storageAllowed()) throw new ApiError(401, "Signed out");
   const operation = method === "POST" && retryProtected(path) ? await operationKey(path, body) : null;
   const res = await fetch(daemonUrl(path), {
@@ -34,7 +71,8 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   const completed = res.headers.get("Idempotency-Status") === "completed";
   if (completed) operation?.delivered();
   if (!res.ok) {
-    if (res.status === 401) await signOut();
+    // In a native client's WebView the app owns the sign-in: the page keeps its storage.
+    if (res.status === 401 && !native) await signOut();
     throw new ApiError(res.status, data?.error ?? res.statusText, completed, data && typeof data === "object" ? data as Record<string, unknown> : null);
   }
   // Older daemons do not advertise durable acceptance; never silently disable retry protection.

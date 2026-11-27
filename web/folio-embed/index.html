@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- No frame may load a URL: frames are only sandboxed srcdoc documents (folio sketches, HTML previews), and a
+         frame's navigation is checked against this page's frame-src, so a sketch cannot leave its frame to send data
+         out (lib/folioSketch.ts). -->
+    <meta http-equiv="Content-Security-Policy" content="frame-src 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Folio</title>
+    <script>
+      // The address names the folio (?ws=&slug=&page=&anchor=&theme=&rev=). It is read here, before the app's modules
+      // load (one of them takes `ws` out of the address), and this page always uses the phone paths (lib/phone.ts).
+      (function () {
+        var q = new URLSearchParams(location.search);
+        window.__lpEmbed = { ws: q.get("ws") || "", slug: q.get("slug") || "", page: q.get("page"), anchor: q.get("anchor"), rev: q.get("rev"), theme: q.get("theme") };
+        var theme = window.__lpEmbed.theme;
+        document.documentElement.dataset.theme = theme === "dark" || theme === "light" ? theme : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.classList.add("lp-phone");
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="../src/embed/main.tsx"></script>
+  </body>
+</html>

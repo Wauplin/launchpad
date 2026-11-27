@@ -32,6 +32,17 @@ import { AgentsButton, AskPanel, FolioAgents, FolioSwitcher, launchWith, type Fo
 
 export type Panel = "comments" | "versions" | "problems" | "ask" | "share";
 type Nav = { page?: string; rev?: number; panel?: Panel; section?: string };
+/** A host that draws the reader's chrome itself (the Android app around `/folio-embed/`): the reader shows the page
+ * and its sheets only, tells the host what it shows, and takes the host's Send and Comments commands. */
+export type FolioHost = {
+  state: (s: { title: string; kind: string; status: string | null; rev: number; latest_rev: number; page: string; pages: { path: string; title: string }[]; unsent: number }) => void;
+  /** The heading at the top of the screen: the reading position. */
+  anchor: (id: string | null) => void;
+  /** The reader's handlers of the host's commands; null when it unmounts. */
+  commands: (c: { send: () => void; comments: () => void; top: () => void } | null) => void;
+  ready: () => void;
+  error: (message: string) => void;
+};
 type Draft = { target: string; page: string; quote?: string; prefix?: string; suffix?: string; text: string };
 
 /** The route `/folios/$slug`. */
@@ -46,7 +57,7 @@ export function FolioRoute() {
 
 const clean = (n: Nav): Nav => Object.fromEntries(Object.entries(n).filter(([, v]) => v != null && v !== "")) as Nav;
 
-export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: string; slug: string; nav: Nav; onNav: (n: Nav) => void; embedded?: boolean }) {
+export function FolioReader({ ws, slug, nav, onNav, embedded = false, host }: { ws: string; slug: string; nav: Nav; onNav: (n: Nav) => void; embedded?: boolean; host?: FolioHost }) {
   const phone = usePhone();
   const navigate = useNavigate();
   const q = useFolio(ws, slug, nav.rev ?? null);
@@ -58,6 +69,7 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
   const [toc, setToc] = useState(false);
   const [asking, setAsking] = useState<FolioPart>({});
   const [agents, setAgents] = useState(false);
+  const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const pagePath = nav.page && d?.pages.some((p) => p.path === nav.page) ? nav.page : d?.pages[0]?.path ?? "index.md";
   const page = d?.pages.find((p) => p.path === pagePath) ?? null;
@@ -107,7 +119,7 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     copyLink: (section) => void copyRefLink({ kind: "folio", id: slug, page: pagePath, section, title: d?.folio.title }),
     open: (p, anchor) => { onNav({ page: p }); if (anchor) requestAnimationFrame(() => document.getElementById(`f-${anchor}`)?.scrollIntoView({ block: "start" })); },
     openFolio: (other) => void navigate({ to: "/folios/$slug", params: { slug: other } }),
-    launchPrompt: (text, folder, section) => {
+    launchPrompt: host ? undefined : (text, folder, section) => {
       const project = folder ? scope.projects.find((p) => p.name.toLowerCase() === folder.toLowerCase()) : undefined;
       useComposer.getState().start({ text, ...(project ? { projectId: project.id } : {}), folios: [folioRef(d.folio, { rev: nav.rev ?? d.folio.rev, page: pagePath, section: section ?? undefined })] });
     },
@@ -147,6 +159,45 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     look();
     return () => cancelAnimationFrame(frame);
   }, [nav.section, pagePath, d]);
+
+  // A host's chrome: what the reader shows, the reading position, and the host's commands.
+  const hostRef = useRef(host);
+  hostRef.current = host;
+  const unsentCount = d ? unsentMarks(d.marks).length : 0;
+  const latestRev = latest.data?.folio.rev ?? d?.folio.rev ?? 0;
+  useEffect(() => {
+    if (!d) return;
+    hostRef.current?.state({ title: d.folio.title, kind: d.folio.kind, status: d.folio.status ?? null, rev: d.rev, latest_rev: latestRev, page: pagePath, pages: d.pages.map((p) => ({ path: p.path, title: p.title })), unsent: unsentCount });
+  }, [d, pagePath, unsentCount, latestRev]);
+  const loaded = !!d;
+  useEffect(() => {
+    const h = hostRef.current;
+    const el = scroller.current;
+    if (!h || !loaded || !el) return;
+    h.ready();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let last: string | null | undefined;
+    const look = () => {
+      const top = el.getBoundingClientRect().top + 12;
+      let found: string | null = null;
+      for (const a of el.querySelectorAll("[data-anchor]")) {
+        if (a.getBoundingClientRect().top > top) break;
+        found = a.getAttribute("data-anchor");
+      }
+      if (found !== last) { last = found; hostRef.current?.anchor(found); }
+    };
+    const onScroll = () => { if (timer) clearTimeout(timer); timer = setTimeout(look, 300); };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => { el.removeEventListener("scroll", onScroll); if (timer) clearTimeout(timer); };
+  }, [loaded, pagePath]);
+  useEffect(() => {
+    const h = hostRef.current;
+    if (!h) return;
+    h.commands({ send: () => setSending(true), comments: () => onNav({ panel: "comments" }), top: () => scroller.current?.scrollTo({ top: 0 }) });
+    return () => h.commands(null);
+  }, [onNav]);
+  const failure = q.error ? humanError(q.error) : null;
+  useEffect(() => { if (failure) hostRef.current?.error(failure); }, [failure]);
 
   if (q.isLoading) return <Loading what="folio" className="h-full" />;
   if (q.error || !d) return <ErrorState error={q.error ?? new Error("no folio")} onRetry={() => void q.refetch()} className="h-full" />;
@@ -212,8 +263,15 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     {selection && <div role="toolbar" aria-label="Selected text" className="fixed z-40 flex -translate-x-1/2 -translate-y-full gap-1 rounded-card border border-line bg-paper p-1 shadow-lg" style={{ left: selection.x, top: selection.y - 6 }} onMouseDown={(e) => e.preventDefault()}>
       <button type="button" className="btn btn-sm btn-primary" title="Comment on this text (saved on Home, sent with Send feedback)" onClick={() => { setDraft({ target: selection.target, page: pagePath, quote: selection.quote, prefix: selection.prefix, suffix: selection.suffix, text: "" }); setPanel("comments"); setSelection(null); window.getSelection()?.removeAllRanges(); }}><Icon name="comment" size={12} />Comment</button>
       <button type="button" className="btn btn-sm" title="Ask the folio's agent about this text" onClick={() => { ask({ page: pagePath, section: selection.target, quote: selection.quote }); setSelection(null); window.getSelection()?.removeAllRanges(); }}><Icon name="send" size={12} />Ask bot</button>
-      <button type="button" className="btn btn-sm" title="Open the composer with this part of the folio as context" onClick={() => { launch({ page: pagePath, section: selection.target, quote: selection.quote }); setSelection(null); window.getSelection()?.removeAllRanges(); }}><Icon name="plus" size={12} />Launch</button>
+      {!host && <button type="button" className="btn btn-sm" title="Open the composer with this part of the folio as context" onClick={() => { launch({ page: pagePath, section: selection.target, quote: selection.quote }); setSelection(null); window.getSelection()?.removeAllRanges(); }}><Icon name="plus" size={12} />Launch</button>}
     </div>}
+  </div>;
+
+  // In a host, only the page and its sheets: the host draws the title, the pages and Send.
+  if (host) return <div className="flex h-full min-h-0 flex-col bg-paper">
+    {body}
+    {panel && <Sheet title={PANEL_TITLE[panel]} full onClose={() => setPanel(null)}>{sideBody(panel)}</Sheet>}
+    {sending && <Sheet title={`Send feedback${unsent.length ? ` · ${unsent.length}` : ""}`} onClose={() => setSending(false)}><Targets ws={ws} slug={slug} unsent={unsent} done={() => setSending(false)} /></Sheet>}
   </div>;
 
   if (phone) return <div className="flex h-full min-h-0 flex-col bg-paper" data-tour="folio.reader">
