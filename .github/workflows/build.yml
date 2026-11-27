@@ -49,7 +49,9 @@ jobs:
             echo "Reusing $asset"
           else
             rm -f "$asset" "$asset.sha256"
-            sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler cmake
+            # libprotobuf-dev holds the google/protobuf/*.proto files that lance imports: it is only recommended by
+            # protobuf-compiler, so it is named here.
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev cmake
             rustup toolchain install "$toolchain" --profile minimal
             cargo "+$toolchain" install --git https://github.com/huggingface/funes --rev "$commit" --locked --root "$PWD/funes-root" funes
             # Without its symbol table: 220 MB instead of 310 MB.
