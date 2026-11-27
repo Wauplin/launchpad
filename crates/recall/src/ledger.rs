@@ -27,6 +27,8 @@ pub struct SessionRow {
     /// Why the session is left out (`archived`, `hidden`, `empty`, `unconvertible`), if it is.
     pub skip: Option<String>,
     pub error: Option<String>,
+    /// Passes that failed in a row.
+    pub failures: i64,
 }
 
 /// One indexed turn: its Funes `seq`, the Home sequences of its first and last events, its time (Unix ms).
@@ -108,14 +110,14 @@ impl Ledger {
 
     pub fn sessions(&self) -> Result<BTreeMap<String, SessionRow>> {
         let c = self.conn()?;
-        let mut st = c.prepare("SELECT session_id, cursor, next_fseq, turns, skip, error FROM session")?;
-        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, SessionRow { cursor: r.get(1)?, next_fseq: r.get(2)?, turns: r.get(3)?, skip: r.get(4)?, error: r.get(5)? })))?;
+        let mut st = c.prepare("SELECT session_id, cursor, next_fseq, turns, skip, error, failures FROM session")?;
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, SessionRow { cursor: r.get(1)?, next_fseq: r.get(2)?, turns: r.get(3)?, skip: r.get(4)?, error: r.get(5)?, failures: r.get(6)? })))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn session(&self, id: &str) -> Result<SessionRow> {
-        let row = self.conn()?.query_row("SELECT cursor, next_fseq, turns, skip, error FROM session WHERE session_id = ?1", [id], |r| {
-            Ok(SessionRow { cursor: r.get(0)?, next_fseq: r.get(1)?, turns: r.get(2)?, skip: r.get(3)?, error: r.get(4)? })
+        let row = self.conn()?.query_row("SELECT cursor, next_fseq, turns, skip, error, failures FROM session WHERE session_id = ?1", [id], |r| {
+            Ok(SessionRow { cursor: r.get(0)?, next_fseq: r.get(1)?, turns: r.get(2)?, skip: r.get(3)?, error: r.get(4)?, failures: r.get(5)? })
         });
         Ok(row.optional()?.unwrap_or_default())
     }

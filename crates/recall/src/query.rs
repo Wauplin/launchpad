@@ -276,6 +276,7 @@ pub async fn status(app: &App, ws: &str) -> Result<Value> {
         "up_to_date": plan.sessions_up_to_date,
         "left_out": plan.sessions_skipped,
         "to_index": plan.sessions_indexed,
+        "failing": plan.sessions_failed,
         "running": plan.sessions_pending,
     });
     if !dir.join("ledger.db").exists() {

@@ -31,6 +31,8 @@ const FILE_TURNS: usize = 200;
 const INDEX_LIMIT: Duration = Duration::from_secs(30 * 60);
 /// How often a session marked after a turn is looked at again while its events are not all on Home.
 const MAX_ATTEMPTS: u32 = 5;
+/// A session that failed this many passes in a row no longer makes the worker start a catch-up pass.
+const GIVE_UP: i64 = 3;
 
 #[derive(Default)]
 pub struct Service {
@@ -390,6 +392,9 @@ pub async fn plan(app: &App, ws: &str) -> Result<Counts> {
             }
         } else if s.status.is_running() {
             counts.sessions_pending += 1;
+        } else if row.is_some_and(|r| r.failures >= GIVE_UP) {
+            // Still tried by every backfill, but no reason for the worker to start one.
+            counts.sessions_failed += 1;
         } else {
             // To index: a dry run counts them as indexed.
             counts.sessions_indexed += 1;

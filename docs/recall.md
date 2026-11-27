@@ -48,14 +48,15 @@ launchpad recall status
 | `sessions.up_to_date` | Indexed through their last event |
 | `sessions.to_index` | Not indexed yet, or indexed only in part: the lag |
 | `sessions.running` | Their turn is not finished; indexed when it ends |
+| `sessions.failing` | Failed three passes in a row: only a new backfill or their next turn tries them again |
 | `sessions.left_out` | Left out, by reason: `archived`, `hidden`, `empty` (nothing to index), `unconvertible` (stored events that no longer read) |
 | `index.sessions`, `index.turns`, `index.blocks` | What the index holds |
 | `index.blocks_truncated` | Blocks too large to index whole: their start and end are indexed |
-| `index.sessions_failed`, `index.failures` | Sessions that failed, with the error; the next pass tries them again |
+| `index.sessions_failed`, `index.failures` | Sessions whose last pass failed, with the error |
 | `index.newest_turn`, `index.lag_minutes`, `index.size_bytes` | How fresh and how large the index is |
 | `backfill` | The last backfill's state (`running`, `done`, `interrupted`, `failed`) and counts |
 
-A backfill is complete when `backfill.state` is `done`, `sessions.to_index` and `index.sessions_failed` are 0, and `sessions.total` equals `up_to_date` + `running` + the sum of `left_out`.
+A backfill is complete when `backfill.state` is `done`, `sessions.to_index` and `index.sessions_failed` are 0, `sessions.failing` is 0, and `sessions.total` equals `up_to_date` + `running` + the sum of `left_out`.
 
 ## Forgetting
 
