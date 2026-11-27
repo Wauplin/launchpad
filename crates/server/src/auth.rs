@@ -39,6 +39,10 @@ pub const DEVICE_HEADER: &str = "x-launchpad-device";
 /// and never sends an Origin. It gets its device secret as JSON from reverse pairing (`reverse_poll`) or, on a Space,
 /// from the gateway's `POST /_home/desktop/connect` (`desktop_device`), then sends it as `X-Launchpad-Device`.
 pub const CLIENT_HEADER: &str = "x-launchpad-client";
+/// The Android app names itself `android/<version>` in the same header, and follows the desktop companion's rules: no
+/// Origin, JSON answers, never a cookie. It connects only through Home's Space gateway (`POST /_home/phone/connect`,
+/// `phone_device`): Sign in with Hugging Face is its only way in, so it has no pairing route.
+const PHONE_CLIENT: &str = "android/";
 
 /// What a device is: a paired browser (cookie), the Chrome extension or the desktop companion (`browser_device.kind`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +50,8 @@ enum DeviceKind {
     Browser,
     Extension,
     Desktop,
+    /// The Android app.
+    Phone,
 }
 impl DeviceKind {
     fn as_str(self) -> &'static str {
@@ -53,12 +59,14 @@ impl DeviceKind {
             DeviceKind::Browser => "browser",
             DeviceKind::Extension => "extension",
             DeviceKind::Desktop => "desktop",
+            DeviceKind::Phone => "phone",
         }
     }
     fn parse(s: &str) -> DeviceKind {
         match s {
             "extension" => DeviceKind::Extension,
             "desktop" => DeviceKind::Desktop,
+            "phone" => DeviceKind::Phone,
             _ => DeviceKind::Browser,
         }
     }
@@ -68,6 +76,12 @@ impl DeviceKind {
 fn from_desktop(headers: &HeaderMap) -> bool {
     !headers.contains_key(header::ORIGIN)
         && headers.get(CLIENT_HEADER).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("desktop/"))
+}
+
+/// A call of the Android app: it says so (`X-Launchpad-Client: android/…`) and sends no Origin.
+fn from_phone(headers: &HeaderMap) -> bool {
+    !headers.contains_key(header::ORIGIN)
+        && headers.get(CLIENT_HEADER).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with(PHONE_CLIENT))
 }
 
 fn from_extension(headers: &HeaderMap) -> bool {
@@ -326,9 +340,15 @@ impl Auth {
         // The extension's header decides alone: a stale secret never falls back to a cookie.
         if let Some(v) = headers.get(DEVICE_HEADER) {
             let secret = v.to_str().ok().filter(|_| device_caller(headers))?;
-            // The desktop companion's secret works only without an Origin (never from a page, nor the extension's).
-            let origin = headers.contains_key(header::ORIGIN);
-            return self.device_access(secret, changes, |kind| !(origin && kind == DeviceKind::Desktop));
+            // The desktop companion's and the phone app's secrets work only without an Origin (never from a page, nor
+            // the extension's).
+            let (origin, phone) = (headers.contains_key(header::ORIGIN), from_phone(headers));
+            return self.device_access(secret, changes, |kind| match kind {
+                DeviceKind::Desktop => !origin,
+                // A phone's secret works only for the app itself.
+                DeviceKind::Phone => phone,
+                _ => true,
+            });
         }
         for v in headers.get_all(header::COOKIE) {
             let Ok(v) = v.to_str() else { continue };
@@ -475,6 +495,8 @@ impl Auth {
         self.db
             .call(move |conn| {
                 conn.execute("DELETE FROM browser_device WHERE id = ?1", [&db_id])?;
+                // Its push token goes with it: a revoked phone gets no wake-up.
+                conn.execute("DELETE FROM device_push WHERE device_id = ?1", [&db_id])?;
                 Ok(())
             })
             .await?;
@@ -504,9 +526,12 @@ pub fn router() -> Router<Server> {
         .route("/api/devices/https/run", post(run_https))
         .route("/api/devices/https/check", post(check_https))
         .route("/api/devices/self", axum::routing::delete(revoke_self))
+        .route("/api/devices/self/presence", post(presence))
+        .route("/api/devices/self/push", axum::routing::put(push_token).delete(push_forget))
         .route("/api/devices/{id}", axum::routing::delete(revoke))
         .route("/api/devices/extension", post(extension_device))
         .route("/api/devices/desktop", post(desktop_device))
+        .route("/api/devices/phone", post(phone_device))
         .route("/api/extension/disconnect", post(extension_disconnect))
 }
 
@@ -641,9 +666,10 @@ async fn guard_inner(s: Server, mut req: Request, next: Next) -> Response {
 }
 
 /// Whether a call authenticated by `X-Launchpad-Device` may reach this path: anything but device management, except
-/// `DELETE /api/devices/self`.
+/// `DELETE /api/devices/self` and the device's own records under `/api/devices/self/` (the phone app's push token,
+/// presence and notifications).
 fn device_header_path(method: &Method, path: &str) -> bool {
-    !(path == "/api/devices" || path.starts_with("/api/devices/")) || (method == Method::DELETE && path == "/api/devices/self")
+    !(path == "/api/devices" || path.starts_with("/api/devices/")) || (method == Method::DELETE && path == "/api/devices/self") || path.starts_with("/api/devices/self/")
 }
 
 /// What a browser signed in to a runner may call: the page itself, its status and checklist, Takes new sessions,
@@ -972,6 +998,16 @@ async fn desktop_device(
     native_device(&s, &access, &body.name, DeviceKind::Desktop).await
 }
 
+/// A device for the Android app on Home's Space: the gateway calls it with the daemon's own credential for
+/// `POST /_home/phone/connect` (name: the phone's model, from the app). Owner bearer only.
+async fn phone_device(
+    State(s): State<Server>,
+    Extension(access): Extension<Access>,
+    Json(body): Json<NativeDevice>,
+) -> ApiResult<Value> {
+    native_device(&s, &access, &body.name, DeviceKind::Phone).await
+}
+
 async fn native_device(s: &Server, access: &Access, name: &str, kind: DeviceKind) -> ApiResult<Value> {
     if access.device.is_some() {
         return Err(ApiError::new(StatusCode::FORBIDDEN, format!("Only Home's Space gateway creates {} devices", kind.as_str())));
@@ -1007,11 +1043,73 @@ async fn revoke_self(State(s): State<Server>, Extension(access): Extension<Acces
     Ok(Json(json!({"ok":true})))
 }
 
+#[derive(Deserialize)]
+struct PushToken {
+    token: String,
+}
+
+/// `PUT /api/devices/self/push`: the phone app registers its Firebase Cloud Messaging token (again whenever FCM
+/// replaces it). Home sends it content-free wake-ups (`launchpad_channels::push`); the token goes with the device.
+async fn push_token(State(s): State<Server>, Extension(access): Extension<Access>, Json(body): Json<PushToken>) -> ApiResult<Value> {
+    let Some(id) = access.device else {
+        return Err(ApiError::bad_request("Only a device registers a push token"));
+    };
+    let token = body.token.trim().to_string();
+    if token.is_empty() || token.len() > 4096 {
+        return Err(ApiError::bad_request("Send the push token"));
+    }
+    s.auth.db.call(move |conn| {
+        conn.execute("INSERT INTO device_push (device_id, token, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(device_id) DO UPDATE SET token = excluded.token, updated_at = excluded.updated_at", (id, token, now()))?;
+        Ok(())
+    }).await?;
+    Ok(Json(json!({"ok":true})))
+}
+
+/// `DELETE /api/devices/self/push`: the phone turned its notifications off.
+async fn push_forget(State(s): State<Server>, Extension(access): Extension<Access>) -> ApiResult<Value> {
+    let Some(id) = access.device else {
+        return Err(ApiError::bad_request("Only a device forgets its push token"));
+    };
+    s.auth.db.call(move |conn| {
+        conn.execute("DELETE FROM device_push WHERE device_id = ?1", [id])?;
+        Ok(())
+    }).await?;
+    Ok(Json(json!({"ok":true})))
+}
+
+#[derive(Deserialize)]
+struct Presence {
+    #[serde(default)]
+    focused: bool,
+    #[serde(default)]
+    sessions: Vec<String>,
+    idle_ms: Option<i64>,
+}
+
+/// The presence "windows" of device clients, beside the WebSocket windows of `ws.rs` (which number from 1 up).
+static DEVICE_WINDOWS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, u64>>> = std::sync::LazyLock::new(Default::default);
+static NEXT_DEVICE_WINDOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1 << 62);
+
+/// `POST /api/devices/self/presence`: what a client without a WebSocket shows (the Android app over
+/// `/api/events`), with the fields of the windows' `presence` message: whether it is on screen, which sessions it
+/// shows and how long ago it last received input. The same rules then apply to it as to a window ("seen", no
+/// notification of a session you are looking at). It sends it on screen changes and every 25 s while visible; a
+/// phone that stops sending counts as away after a minute without input.
+async fn presence(State(s): State<Server>, Extension(access): Extension<Access>, Json(p): Json<Presence>) -> ApiResult<Value> {
+    let Some(id) = access.device else {
+        return Err(ApiError::bad_request("Only a device reports its presence here"));
+    };
+    let window = *DEVICE_WINDOWS.lock().unwrap().entry(id).or_insert_with(|| NEXT_DEVICE_WINDOW.fetch_add(1, Ordering::Relaxed));
+    let sessions: Vec<String> = p.sessions.into_iter().take(50).collect();
+    s.app.sessions.set_watched(window, (p.focused || !sessions.is_empty()).then_some((p.focused, sessions, p.idle_ms)));
+    Ok(Json(json!({"ok":true})))
+}
+
 #[derive(Serialize)]
 struct Device {
     id: String,
     name: String,
-    /// browser, extension or desktop.
+    /// browser, extension, desktop or phone.
     kind: String,
     created_at: i64,
     expires_at: i64,

@@ -12,7 +12,7 @@ import aiohttp
 from aiohttp import web
 import tomlkit
 
-from gateway.proxy import CORS_HEADERS, Proxy, canonical_path, cors, from_desktop, from_extension
+from gateway.proxy import CORS_HEADERS, Proxy, canonical_path, cors, from_extension, from_native, from_phone
 from onboarding import KEY_MISMATCH, MIN_KEY, Setup, derive_key
 
 
@@ -30,8 +30,8 @@ class HomeProxy(Proxy):
 
     async def handle(self, request):
         path = self.guard(request)
-        if from_extension(request) or from_desktop(request):
-            response = await (self.extension(request, path) if from_extension(request) else self.desktop(request, path))
+        if from_extension(request) or from_native(request):
+            response = await (self.extension(request, path) if from_extension(request) else self.native(request, path))
             if response is not None:
                 return response
         response = await self.setup.handle(request, path)
@@ -58,15 +58,17 @@ class HomeProxy(Proxy):
             raise web.HTTPForbidden(text="Not available to the extension")
         return None
 
-    async def desktop(self, request, path):
-        """The desktop companion's own routes (`X-Launchpad-Client: desktop/…`, no Origin, no CORS); None lets a call
-        with its device header through to Home."""
+    async def native(self, request, path):
+        """The own routes of the desktop companion (`X-Launchpad-Client: desktop/…`) and the Android app
+        (`android/…`): no Origin, no CORS; None lets a call with its device header through to Home. Each client
+        connects only as its own device kind."""
+        kind = "phone" if from_phone(request) else "desktop"
         if path == "/_home/status" and request.method == "GET":
             return self.status()
-        if path == "/_home/desktop/connect" and request.method == "POST":
-            return await self.connect(request, "/api/devices/desktop")
+        if path == f"/_home/{kind}/connect" and request.method == "POST":
+            return await self.connect(request, f"/api/devices/{kind}")
         if path.startswith("/_home/"):
-            raise web.HTTPForbidden(text="Not available to the desktop companion")
+            raise web.HTTPForbidden(text="Not available to this client")
         return None
 
     def status(self):
@@ -75,7 +77,7 @@ class HomeProxy(Proxy):
                                   "unlocked": self.setup.unlocked}, headers={"Cache-Control": "no-store"})
 
     async def connect(self, request, route):
-        """A new device of Home for the extension or the desktop companion: the Hub's private-Space check (the owner's
+        """A new device of Home for the extension, the desktop companion or the Android app: the Hub's private-Space check (the owner's
         Hugging Face token) stands for pairing. Home's own route (owner bearer only) creates it."""
         if not self.setup.complete or not self.setup.api:
             return web.json_response({"error": "Finish Home setup first.", "setup": "/_home/setup"}, status=503)

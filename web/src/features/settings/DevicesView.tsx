@@ -12,14 +12,16 @@ import { copyText } from "@/lib/clipboard";
 import { toast, toastError } from "@/components/Toast";
 import { ago, when } from "@/lib/format";
 import { Card, SettingsPage } from "./SettingsView";
+import { PushCard } from "./PushSettings";
 
-type Device = { id: string; name: string; kind: "browser" | "extension" | "desktop"; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
+type Device = { id: string; name: string; kind: "browser" | "extension" | "desktop" | "phone"; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
 type Pair = { url: string; svg: string; expires_at: number; warning: string | null };
 
 export function DevicesView() {
   // On a Space, the Hub admits browsers (no pairing here); the Chrome extension and the desktop companion are devices.
-  if (delegatedAccess()) return <SettingsPage title="Devices" intro="Your Space's gateway admits your browsers. The Chrome extension and the desktop companion connect as devices; each one has full access.">
-    <DeviceList title="Connected apps" empty="No Chrome extension or desktop companion is connected." />
+  if (delegatedAccess()) return <SettingsPage title="Devices" intro="Your Space's gateway admits your browsers. The Chrome extension, the desktop companion and the Android app connect as devices; each one has full access.">
+    <DeviceList title="Connected apps" empty="No Chrome extension, desktop companion or Android app is connected." />
+    <PushCard />
   </SettingsPage>;
   return <PairedDevicesView />;
 }
@@ -54,6 +56,7 @@ function PairedDevicesView() {
       </div> : <p className="text-[13px] text-ink-3" role="status">Pairing link expired. Create a new link.</p>)}
     </Card>
     <DeviceList title="Paired devices" empty="No paired device." />
+    <PushCard />
   </SettingsPage>;
 }
 
@@ -176,7 +179,7 @@ function HttpsSetup({ disabled, onBusy, onPair }: { disabled: boolean; onBusy: (
   </div>;
 }
 
-const KIND: Record<Device["kind"], string> = { browser: "Browser", extension: "Chrome extension", desktop: "Desktop companion" };
+const KIND: Record<Device["kind"], string> = { browser: "Browser", extension: "Chrome extension", desktop: "Desktop companion", phone: "Android app" };
 
 const DeviceRow = memo(function DeviceRow({ device, height, top, onRevoked }: { device: Device; height: number; top: number; onRevoked: (device: Device) => Promise<void> }) {
   return <div className="absolute left-0 top-0 flex w-full items-center gap-3 border-b border-line-2" style={{ height, transform: `translateY(${top}px)` }}>

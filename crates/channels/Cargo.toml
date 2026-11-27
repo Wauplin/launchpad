@@ -9,6 +9,7 @@ doctest = false
 
 [dependencies]
 anyhow = "1.0.104"
+aws-lc-rs = "1.18"
 base64 = "0.22"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 chrono-tz = "0.10.4"

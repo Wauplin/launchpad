@@ -45,6 +45,16 @@ pub const CAPABILITIES: &[&str] = &[
     "devices_self",
     // `group` on light session records and `sessions` bus events (`Session::group`).
     "session_group",
+    // The Android app: `POST /_home/phone/connect` (Space) and devices of kind `phone` (`X-Launchpad-Client: android/…`).
+    "phone_device",
+    // `GET /api/events?topics=`: only the topics a client names (prefixes).
+    "event_topics",
+    // `POST /api/devices/self/presence`: presence ("seen", notification suppression) for clients without a WebSocket.
+    "device_presence",
+    // `PUT`/`DELETE /api/devices/self/push` (a phone's FCM token) and `GET /api/phone/notifications`.
+    "device_push",
+    // `/folio-embed/`: the folio reader alone, for a native client's WebView (`window.LaunchpadNative`).
+    "folio_embed",
 ];
 
 fn version_body(commit: &str, role: &str) -> Value {

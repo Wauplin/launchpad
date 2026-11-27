@@ -3,6 +3,7 @@
 //! The environment comes from `LAUNCHPAD_ENV` (`prod` by default, `dev` for development).
 
 mod extensions;
+mod kotlin_types;
 #[cfg(target_os = "linux")]
 mod netcap;
 mod folio;
@@ -481,7 +482,7 @@ enum Command {
     Url,
     /// Print a five-minute pairing link and QR code for a browser or phone.
     Pair,
-    /// Write the TypeScript types shared with the UI.
+    /// Write the TypeScript types shared with the UI, and their Kotlin versions for the Android app.
     #[command(hide = true)]
     GenTypes {
         #[arg(default_value = "web/src/gen")]

@@ -11,7 +11,9 @@
 //! `GET /api/events` is the same stream as server-sent events, for clients that cannot open
 //! a WebSocket with their headers (the Chrome extension through Home's Space). Each message is `data: <the same
 //! JSON text>`; bus events also carry `id: <boot>:<bus>`, so `Last-Event-ID` resumes like `?boot=&since=`. A
-//! `: keepalive` comment comes every 15 s. It is one-way: no presence.
+//! `: keepalive` comment comes every 15 s. It is one-way: no presence (device clients post theirs to
+//! `/api/devices/self/presence`). `?topics=today,sessions,session/<id>` keeps only the bus events of those topics (a
+//! name also covers `<name>/…`), in the replay too, so a phone on mobile data follows only the trace it shows.
 
 use axum::extract::{Query, State};
 use axum::Extension;
@@ -27,6 +29,15 @@ use crate::Server;
 pub struct Resume {
     boot: Option<String>,
     since: Option<u64>,
+    /// `/api/events` only: a comma-separated list of topics.
+    topics: Option<String>,
+}
+
+/// `{"bus":…,"seq":…,"topic":"<topic>",…}`: whether a client that named `topics` gets this event.
+fn wanted(topics: &Option<Vec<String>>, text: &str) -> bool {
+    let Some(topics) = topics else { return true };
+    let Some(topic) = text.split_once("\"topic\":\"").and_then(|(_, r)| r.split('"').next()) else { return true };
+    topics.iter().any(|t| topic == t || topic.strip_prefix(t.as_str()).is_some_and(|rest| rest.starts_with('/')))
 }
 
 pub async fn handler(State(s): State<Server>, Extension(access): Extension<Access>, Query(resume): Query<Resume>, ws: WebSocketUpgrade) -> Response {
@@ -133,8 +144,9 @@ pub async fn events(State(s): State<Server>, Extension(access): Extension<Access
     if resume.since.is_none()
         && let Some((boot, since)) = headers.get("last-event-id").and_then(|v| v.to_str().ok()).and_then(|v| v.split_once(':'))
     {
-        resume = Resume { boot: Some(boot.to_string()), since: since.parse().ok() };
+        resume = Resume { boot: Some(boot.to_string()), since: since.parse().ok(), topics: resume.topics.take() };
     }
+    let topics: Option<Vec<String>> = resume.topics.as_deref().map(|t| t.split(',').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).collect());
     let bus = &s.app.bus;
     let boot = bus.boot().to_string();
     let since = resume.since.filter(|_| resume.boot.as_deref() == Some(bus.boot()));
@@ -143,7 +155,7 @@ pub async fn events(State(s): State<Server>, Extension(access): Extension<Access
     let mut first = std::collections::VecDeque::from([format!("retry: 3000\ndata: {hello}\n\n")]);
     match replay.missed {
         Some(missed) => {
-            first.extend(missed.into_iter().map(|e| format!("id: {boot}:{}\ndata: {}\n\n", e.bus, e.text)));
+            first.extend(missed.into_iter().filter(|e| wanted(&topics, &e.text)).map(|e| format!("id: {boot}:{}\ndata: {}\n\n", e.bus, e.text)));
             first.push_back("data: {\"type\":\"replayed\"}\n\n".into());
         }
         None => first.push_back("data: {\"type\":\"resync\"}\n\n".into()),
@@ -153,6 +165,7 @@ pub async fn events(State(s): State<Server>, Extension(access): Extension<Access
         events: tokio::sync::broadcast::Receiver<launchpad_core::events::Delivered>,
         access: Access,
         boot: String,
+        topics: Option<Vec<String>>,
         keepalive: tokio::time::Interval,
         expiry: tokio::time::Interval,
     }
@@ -161,6 +174,7 @@ pub async fn events(State(s): State<Server>, Extension(access): Extension<Access
         events: replay.rx,
         access,
         boot,
+        topics,
         keepalive: tokio::time::interval_at(tokio::time::Instant::now() + KEEPALIVE, KEEPALIVE),
         expiry: tokio::time::interval(std::time::Duration::from_secs(30)),
     };
@@ -177,6 +191,7 @@ pub async fn events(State(s): State<Server>, Extension(access): Extension<Access
                 _ = st.expiry.tick() => { if !st.access.valid() { return None } continue }
                 _ = st.keepalive.tick() => ": keepalive\n\n".to_string(),
                 ev = st.events.recv() => match ev {
+                    Ok(ev) if !wanted(&st.topics, &ev.text) => continue,
                     Ok(ev) => format!("id: {}:{}\ndata: {}\n\n", st.boot, ev.bus, ev.text),
                     Err(RecvError::Lagged(n)) => {
                         tracing::warn!("event stream client lagged by {n} events");

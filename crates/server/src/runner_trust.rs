@@ -30,6 +30,7 @@ pub(crate) fn may(method: &str, path: &str) -> bool {
             | ("GET", ["api", "sessions", _] | ["api", "sessions", _, "trace"])
             | ("GET", ["api", "context", "presets"] | ["api", "connections", "names"])
             | ("POST", ["api", "connections", "telegram", "notify"])
+            | ("POST", ["api", "phone", "notify"])
     )
 }
 
@@ -132,7 +133,7 @@ pub(crate) async fn check(app: &App, runner: &str, method: &str, path: &str, bod
                 || app.sessions.list().iter().any(|s| s.runner_id.as_deref() == Some(runner) && s.launch_spec.agent_traces.iter().any(|t| t.session_id == *id));
             ensure!(placed(app, runner, id) || context, "Home did not place this session on this runner, nor send it as context");
         }
-        ("POST", ["api", "connections", "telegram", "notify"]) => {
+        ("POST", ["api", "connections", "telegram", "notify"]) | ("POST", ["api", "phone", "notify"]) => {
             session(&v)?;
         }
         // Asset folders: of a Git folder of a workspace the runner works in.

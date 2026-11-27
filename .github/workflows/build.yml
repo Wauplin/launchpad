@@ -9,6 +9,10 @@ name: Build
 # The `desktop` job builds the desktop companion's .deb (launchpad-desktop_<version>_amd64.deb and its .sha256) in an
 # ubuntu:26.04 container, beside the package build; `publish-desktop` attaches it to the same release, or to
 # main-build named by its version (which names the commit), keeping the 20 newest.
+# The `android` job builds the Android app's APK (launchpad-android-<version>.apk and its .sha256) from android/, signed
+# with the release key of the secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and
+# ANDROID_KEY_PASSWORD (callers pass them with `secrets: inherit`); without them it is signed with a debug key, so the
+# build still passes. `publish-android` attaches it like the desktop package.
 
 on:
   workflow_call:
@@ -276,6 +280,130 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 90
+
+  android:
+    name: Android app (APK)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # It runs Gradle plugins and third-party build code: read only, and no token left in .git/config. Only
+    # publish-android writes, with the caller's permissions.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: App version
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag="$RELEASE_TAG"
+          if [ -z "$tag" ] && [ "$REF_TYPE" = tag ]; then tag="$REF_NAME"; fi
+          if printf '%s' "$tag" | grep -Eq '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$'; then
+            version="${tag#v}" channel=release
+          else
+            # Main builds name their commit, like the desktop package.
+            version="$(TZ=UTC git show -s --format=%cd --date=format-local:%Y.%m.%d.0-main.%H%M%S).g$(git rev-parse --short=7 HEAD)"
+            channel=main
+          fi
+          # Android installs an update only with a higher version code: the minutes of the commit's time.
+          code=$(( $(git show -s --format=%ct HEAD) / 60 ))
+          echo "Android app $version ($channel, version code $code)"
+          { echo "version=$version"; echo "channel=$channel"; echo "code=$code"; } >> "$GITHUB_OUTPUT"
+      - name: Release signing key from the secrets (without it, a debug key signs the build)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          else
+            echo "::notice::No ANDROID_KEYSTORE_BASE64 secret: this APK is signed with a debug key and cannot update an installed release."
+          fi
+      - name: Build the APK
+        working-directory: android
+        env:
+          LAUNCHPAD_ANDROID_VERSION: ${{ steps.version.outputs.version }}
+          LAUNCHPAD_ANDROID_VERSION_CODE: ${{ steps.version.outputs.code }}
+          LAUNCHPAD_ANDROID_CHANNEL: ${{ steps.version.outputs.channel }}
+          LAUNCHPAD_ANDROID_COMMIT: ${{ github.sha }}
+          LAUNCHPAD_GITHUB_REPO: ${{ github.repository }}
+          # The same public Hugging Face OAuth app as the Chrome extension and the desktop companion (PKCE, loopback redirect).
+          LAUNCHPAD_HF_CLIENT_ID: ${{ vars.HF_CLIENT_ID }}
+          # The owner's Firebase project (values of its google-services.json; none of them is a secret). All empty: no push.
+          LAUNCHPAD_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          LAUNCHPAD_FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+          LAUNCHPAD_FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          LAUNCHPAD_FIREBASE_SENDER_ID: ${{ vars.FIREBASE_SENDER_ID }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          ./gradlew --no-daemon :app:assembleRelease
+      - name: Name the APK and write its checksum
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          apk="launchpad-android-$VERSION.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/$apk"
+          (cd dist && sha256sum "$apk" > "$apk.sha256")
+          # Which key signed it.
+          "$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner" verify --print-certs "dist/$apk" | head -4
+          rm -f "$RUNNER_TEMP/release.jks"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: launchpad-android-apk
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-android:
+    name: Publish the Android app
+    needs: [build, android]
+    if: inputs.release-tag != '' || inputs.main-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: launchpad-android-apk
+          path: dist
+      - name: Attach to the release
+        if: inputs.release-tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release-tag }}
+        run: gh release upload "$TAG" dist/*.apk dist/*.apk.sha256 --repo "$GITHUB_REPOSITORY"
+      - name: Attach to main-build
+        if: inputs.main-build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Only the current main head: a superseded run must not publish (the build job created the prerelease).
+          [ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA" ] || { echo "main moved on; not publishing"; exit 0; }
+          gh release upload main-build dist/*.apk dist/*.apk.sha256 --repo "$GITHUB_REPOSITORY" --clobber
+          # Keep the APKs of the 20 newest commits.
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/main-build" \
+            --jq '[.assets[] | select(.name | endswith(".apk"))] | sort_by(.created_at) | reverse | .[20:][] | .name' \
+            | while read -r old; do
+                gh release delete-asset main-build "$old" --repo "$GITHUB_REPOSITORY" -y
+                gh release delete-asset main-build "$old.sha256" --repo "$GITHUB_REPOSITORY" -y || true
+              done
 
   publish-desktop:
     name: Publish the desktop companion package

@@ -9,6 +9,7 @@ pub struct Extensions;
 impl launchpad_core::ext::Extensions for Extensions {
     fn notify_connections(&self, app: &App, session: &Session, event: &'static str) {
         launchpad_channels::telegram::notify(app, session, event);
+        launchpad_channels::push::session_event(app, session, event);
     }
     fn turn_ended(&self, app: &App, session: &Session) {
         crons::turn_ended(app, session);
@@ -94,7 +95,8 @@ pub async fn start(app: &App) -> Result<()> {
     Ok(())
 }
 
-/// Writes the TypeScript versions of the types shared with the UI (ts-rs), for every crate.
+/// Writes the TypeScript versions of the types shared with the UI (ts-rs), for every crate, and their Kotlin
+/// versions for the Android app (`kotlin_types`).
 pub fn gen_types(out: &std::path::Path) -> Result<()> {
     let cfg = launchpad_core::types_config(out)?;
     launchpad_core::gen_types(&cfg)?;
@@ -102,5 +104,9 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     launchpad_github::gen_types(&cfg)?;
     launchpad_automation::gen_types(&cfg)?;
     launchpad_setup::gen_types(&cfg)?;
+    // The Android app's Kotlin versions, from the files just written (`web/src/gen` → `android/`).
+    if let Some(android) = out.ancestors().nth(3).map(|root| root.join("android/app/src/main")).filter(|p| p.is_dir()) {
+        crate::kotlin_types::write(out, &android.join("kotlin/dev/launchpad/android/gen"))?;
+    }
     Ok(())
 }

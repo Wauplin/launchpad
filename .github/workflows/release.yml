@@ -42,5 +42,7 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/build.yml
+    # The Android job reads the APK signing key.
+    secrets: inherit
     with:
       release-tag: ${{ needs.version.outputs.tag }}

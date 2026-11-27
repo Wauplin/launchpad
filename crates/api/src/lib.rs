@@ -9,6 +9,7 @@ mod channels;
 mod chats;
 mod code;
 mod connections;
+mod phone;
 mod diagnostics;
 mod egress;
 mod ext;
@@ -48,6 +49,7 @@ pub fn router() -> Router<Ctx> {
         .merge(channels::router())
         .merge(chats::router())
         .merge(connections::router())
+        .merge(phone::router())
         .merge(prompt_context::router())
         .merge(setup::router())
         .merge(mcp::router())

@@ -14,7 +14,7 @@ impl Sessions {
     }
 
     /// Shown in a focused window that received user input in the last minute (the same rule as "seen" in the UI).
-    pub(crate) fn is_watched(&self, id: &str) -> bool {
+    pub fn is_watched(&self, id: &str) -> bool {
         let w = self.inner.watched.lock().unwrap();
         let now = now_ms();
         w.values().any(|(focused, sessions, at, input)| {

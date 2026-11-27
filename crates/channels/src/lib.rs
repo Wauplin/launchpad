@@ -12,6 +12,7 @@ pub mod digest;
 pub mod hooks;
 pub mod scheduled;
 pub mod sends;
+pub mod push;
 pub mod telegram;
 pub mod today;
 
@@ -28,6 +29,8 @@ pub fn spawn(app: &App) {
         sends::spawn(app);
         // Scheduled posts in bot channels and DMs, posted once due.
         scheduled::spawn(app);
+        // Wake-ups for the Android app when what waits for the owner changes.
+        push::spawn(app);
     }
 }
 
@@ -37,6 +40,8 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     connections::Connection::export_all(cfg)?;
     connections::OutboxMessage::export_all(cfg)?;
     telegram::TelegramStatus::export_all(cfg)?;
+    push::PhoneNotifications::export_all(cfg)?;
+    push::PushStatus::export_all(cfg)?;
     hooks::Hook::export_all(cfg)?;
     hooks::CreatedHook::export_all(cfg)?;
     hooks::QueuedMessage::export_all(cfg)?;

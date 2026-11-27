@@ -40,12 +40,16 @@ def denied(path):
 def blocked(method, path, device):
     """Whether the gateway refuses a route. Device management (`/api/devices`) stays closed except: the owner's own
     Space-origin browser lists and revokes devices (`GET /api/devices`, `DELETE /api/devices/<id>`), and a device
-    call (the extension or the desktop companion, `device` true) deletes only itself (`DELETE /api/devices/self`).
+    call (the extension, the desktop companion or the Android app, `device` true) deletes only itself
+    (`DELETE /api/devices/self`) and reaches its own records under `/api/devices/self/` (the phone's push token,
+    presence and notifications).
     Pairing, `/auth` and the other blocked routes stay closed to everyone."""
     parts = path.split("/")
     one = len(parts) == 4 and path.startswith("/api/devices/") and parts[3] != ""
     if device:
         if one and method == "DELETE" and parts[3] == "self":
+            return False
+        if path.startswith("/api/devices/self/") and len(parts) == 5 and parts[4] != "":
             return False
     elif (path == "/api/devices" and method in ("GET", "HEAD")) or (one and method == "DELETE" and parts[3] != "self"):
         return False
@@ -59,9 +63,21 @@ def from_desktop(request):
     return not request.headers.getall("Origin", []) and request.headers.get(CLIENT_HEADER, "").startswith("desktop/")
 
 
+def from_phone(request):
+    """A call of the Android app: `X-Launchpad-Client: android/<version>` and no Origin. It follows the desktop
+    companion's rules: the Hub's private-Space check with the owner's Hugging Face token, then its own device."""
+    return not request.headers.getall("Origin", []) and request.headers.get(CLIENT_HEADER, "").startswith("android/")
+
+
+def from_native(request):
+    """A native client without an Origin: the desktop companion or the Android app."""
+    return from_desktop(request) or from_phone(request)
+
+
 def device_call(request):
-    """A call that acts as a device (the extension or the desktop companion), never with the daemon's credential."""
-    return from_extension(request) or from_desktop(request)
+    """A call that acts as a device (the extension, the desktop companion or the Android app), never with the
+    daemon's credential."""
+    return from_extension(request) or from_native(request)
 
 
 def from_extension(request):
@@ -73,7 +89,7 @@ def from_extension(request):
     origins = request.headers.getall("Origin", [])
     if origins == [EXTENSION_ORIGIN]:
         return True
-    if from_desktop(request):
+    if from_native(request):
         return False
     worker = request.headers.get("Sec-Fetch-Site") == "none" and request.headers.get("Sec-Fetch-Mode") not in (None, "navigate")
     return not origins and (DEVICE_HEADER in request.headers or worker)
@@ -123,8 +139,8 @@ class Proxy:
         if from_extension(request):
             # The extension acts as its device (`X-Launchpad-Device`), never with the daemon's credential.
             headers.update(Host=self.host, Origin=EXTENSION_ORIGIN)
-        elif from_desktop(request):
-            # The desktop companion too, and without an Origin (the daemon accepts its device only so).
+        elif from_native(request):
+            # The desktop companion and the Android app too, and without an Origin (the daemon accepts their device only so).
             headers.update(Host=self.host)
         else:
             headers = {k: v for k, v in headers.items() if k.lower() != DEVICE_HEADER.lower()}
@@ -139,7 +155,7 @@ class Proxy:
         if blocked(request.method, path, device_call(request)):
             raise web.HTTPNotFound()
         if device_call(request) and not request.headers.get(DEVICE_HEADER):
-            return web.json_response({"error": "Connect this browser first" if from_extension(request) else "Connect this computer first"}, status=401)
+            return web.json_response({"error": "Connect this browser first" if from_extension(request) else "Connect this phone first" if from_phone(request) else "Connect this computer first"}, status=401)
         headers = self.headers(request)
         url = self.base + request.raw_path
         if request.headers.get("Upgrade", "").lower() == "websocket":

@@ -311,6 +311,13 @@ route("POST", "/api/devices/pair", () => {
   const code = Array.from({ length: 4 }, () => Math.floor(Math.random() * 36 ** 4).toString(36).padStart(4, "0")).join("");
   return { url: `https://demo.invalid/auth#code=demo-${code}`, svg: qrSvg(code), expires_at: Math.floor(Date.now() / 1000) + 300, warning: null };
 });
+// Phone notifications (Settings → Devices): the demo has a key and one phone, and sends nothing.
+const demoPush = { configured: true, project_id: "launchpad-demo", client_email: "firebase-adminsdk@launchpad-demo.iam.gserviceaccount.com", phones: 1, last_sent_at: Date.now() - 12 * 60_000, last_error: null };
+route("GET", "/api/phone/push", () => demoPush);
+route("GET", "/api/phone/notifications", () => ({ seq: 0, items: [] }));
+route("PUT", "/api/phone/push/key", notInDemo);
+route("DELETE", "/api/phone/push/key", notInDemo);
+route("POST", "/api/phone/push/test", notInDemo);
 route("POST", "/api/devices/reverse/check", notInDemo);
 route("POST", "/api/devices/reverse/approve", notInDemo);
 route("POST", "/api/devices/https/run", notInDemo);
