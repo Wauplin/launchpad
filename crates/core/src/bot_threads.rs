@@ -17,6 +17,11 @@
 //! `conversation:<id>`), so each bot keeps its own session and sees only what is addressed to it. A thread that
 //! continues in a new one (`follow_up`) stays in its conversation; archiving one thread archives the whole
 //! conversation.
+//!
+//! Run groups: a routine run's thread is a root run (`run` = its own conversation ID). Every message a thread of the
+//! run sends (`bot message`, a channel post or DM, an answer) carries the run (`MessageFrom.run`, stamped by Home from
+//! the sender's thread), and the thread it starts records it (`note_run`), so the run's handoffs, however far they
+//! go, form one group (`run_threads`) that the owner reads as one run and that its routine archives as one.
 
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{OptionalExtension, params};
@@ -50,6 +55,9 @@ pub struct BotThread {
     pub conversation: String,
     /// The owner (or an agent) renamed it, by hand or with Auto: its title then names the chat (`chatTitle`).
     pub renamed: bool,
+    /// The routine run it belongs to (`<bot>:<thread>` of the run's thread; the run's thread names itself), None when
+    /// it belongs to none (`note_run`).
+    pub run: Option<String>,
 }
 
 impl BotThread {
@@ -178,10 +186,11 @@ static THREADS: std::sync::LazyLock<crate::locks::Locks> = std::sync::LazyLock::
 fn row(r: &rusqlite::Row) -> rusqlite::Result<BotThread> {
     let (bot_id, id): (String, String) = (r.get(0)?, r.get(1)?);
     let conversation = r.get::<_, Option<String>>(6)?.unwrap_or_else(|| conversation_id(&bot_id, &id));
-    Ok(BotThread { bot_id, id, key: r.get(2)?, title: r.get(3)?, created_at: r.get(4)?, archived_at: r.get(5)?, conversation, renamed: r.get::<_, i64>(7)? != 0 })
+    let run = r.get::<_, Option<String>>(8)?.filter(|r| !r.is_empty());
+    Ok(BotThread { bot_id, id, key: r.get(2)?, title: r.get(3)?, created_at: r.get(4)?, archived_at: r.get(5)?, conversation, renamed: r.get::<_, i64>(7)? != 0, run })
 }
 
-const COLUMNS: &str = "bot_id, id, key, title, created_at, archived_at, conversation, renamed";
+const COLUMNS: &str = "bot_id, id, key, title, created_at, archived_at, conversation, renamed, run";
 /// The conversation of a row, in SQL.
 const CONVERSATION: &str = "COALESCE(conversation, bot_id || ':' || id)";
 
@@ -260,7 +269,7 @@ pub async fn resolve(app: &App, bot: &str, to: &To, fallback: &str) -> Result<St
             Some(t) => Ok(t),
             None => {
                 let title = conversation_title(app, id).await.unwrap_or_else(|| if title.is_empty() { fallback.to_string() } else { title.clone() });
-                insert_in(app, bot, Some(conversation_key(id)), &title, Some(id.clone())).await
+                insert_in(app, bot, Some(conversation_key(id)), &title, Some(id.clone()), None).await
             }
         },
     }
@@ -321,7 +330,8 @@ pub async fn follow_up(app: &App, bot: &str, thread: &str) -> Result<String> {
     let _held = lock.lock().await;
     let t = get(app, bot, thread).await?.context("this thread no longer exists")?;
     // It stays in its conversation.
-    let id = insert_in(app, bot, t.key.clone(), &t.title, Some(t.conversation.clone())).await?;
+    // It stays in its conversation and its run (undecided when it had none: `note_run` of its first message).
+    let id = insert_in(app, bot, t.key.clone(), &t.title, Some(t.conversation.clone()), t.run.clone()).await?;
     if t.renamed {
         let (b, i) = (bot.to_string(), id.clone());
         app.state_db.call(move |c| Ok(c.execute("UPDATE bot_thread SET renamed = 1 WHERE bot_id = ?1 AND id = ?2", params![b, i])?)).await?;
@@ -332,18 +342,18 @@ pub async fn follow_up(app: &App, bot: &str, thread: &str) -> Result<String> {
 }
 
 async fn insert(app: &App, bot: &str, key: Option<String>, title: &str) -> Result<String> {
-    insert_in(app, bot, key, title, None).await
+    insert_in(app, bot, key, title, None, None).await
 }
 
-/// A new thread; `conversation`: the conversation it joins (None: its own).
-async fn insert_in(app: &App, bot: &str, key: Option<String>, title: &str, conversation: Option<String>) -> Result<String> {
+/// A new thread; `conversation`: the conversation it joins (None: its own); `run`: the run group it continues.
+async fn insert_in(app: &App, bot: &str, key: Option<String>, title: &str, conversation: Option<String>, run: Option<String>) -> Result<String> {
     let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
     let title = match short(title) {
         t if t.is_empty() => "New thread".to_string(),
         t => t,
     };
     let (b, i) = (bot.to_string(), id.clone());
-    app.state_db.call(move |c| Ok(c.execute("INSERT INTO bot_thread (bot_id, id, key, title, created_at, conversation) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![b, i, key, title, now_ms(), conversation])?)).await?;
+    app.state_db.call(move |c| Ok(c.execute("INSERT INTO bot_thread (bot_id, id, key, title, created_at, conversation, run) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![b, i, key, title, now_ms(), conversation, run])?)).await?;
     app.bus.publish("bots", "threads", serde_json::json!({"id": bot}));
     Ok(id)
 }
@@ -388,10 +398,19 @@ async fn set_archived(app: &App, bot: &str, id: &str, archived: bool) -> Result<
 }
 
 /// Archive (or bring back) a thread and the other threads of its conversation (the threads of other bots it shares,
-/// open ones; Bring back: the ones archived with it). Refused while one of them works.
+/// open ones; Bring back: the ones archived with it), and, for a routine run's own thread, the threads of its run group
+/// (`run_threads`). Refused while one of them works.
 pub async fn archive(app: &App, bot: &str, id: &str, archived: bool) -> Result<BotThread> {
     let t = get(app, bot, id).await?.context("this thread no longer exists")?;
-    let others: Vec<BotThread> = conversation_threads(app, &t.conversation).await?.into_iter().filter(|o| !(o.bot_id == bot && o.id == id)).collect();
+    let mut others: Vec<BotThread> = conversation_threads(app, &t.conversation).await?;
+    if t.run.as_deref() == Some(conversation_id(bot, id).as_str()) {
+        for m in run_threads(app, &conversation_id(bot, id)).await? {
+            if !others.iter().any(|o| o.bot_id == m.bot_id && o.id == m.id) {
+                others.push(m);
+            }
+        }
+    }
+    let others: Vec<BotThread> = others.into_iter().filter(|o| !(o.bot_id == bot && o.id == id)).collect();
     let others: Vec<BotThread> = if archived {
         others.into_iter().filter(|o| o.archived_at.is_none()).collect()
     } else {
@@ -425,6 +444,63 @@ async fn archive_one(app: &App, bot: &str, id: &str, archived: bool) -> Result<B
     }
     set_archived(app, bot, id, archived).await?;
     get(app, bot, id).await?.context("this thread no longer exists")
+}
+
+/// Pure: the run a thread belongs to after a message (`note_run`). `current`: its stored value (None: undecided, a
+/// new thread; "": none); `own`: its own conversation ID; `started`: the thread already has a session; `incoming`:
+/// the message's run (`MessageFrom.run`, or the thread's own ID for its routine run's first message). A run's own
+/// thread stays its root; a new thread takes the run of its first message; any later message of another run, of the
+/// owner or without a run detaches it for good (""), so a thread is grouped only while every message in it came from
+/// that one run.
+pub fn next_run(current: Option<&str>, own: &str, started: bool, incoming: Option<&str>) -> String {
+    match current {
+        Some(r) if r == own => r.to_string(),
+        None if started => String::new(),
+        None => incoming.unwrap_or_default().to_string(),
+        Some(r) if !r.is_empty() && incoming == Some(r) => r.to_string(),
+        Some(_) => String::new(),
+    }
+}
+
+/// Home: a message reaches the thread (`bots::message_with`, before any `follow_up`): records the run it belongs to
+/// (`next_run`). `incoming`: the message's run.
+pub async fn note_run(app: &App, bot: &str, thread: &str, incoming: Option<&str>) -> Result<()> {
+    let (b, t) = (bot.to_string(), thread.to_string());
+    let current: Option<Option<String>> = app.state_db.call(move |c| Ok(c.query_row("SELECT run FROM bot_thread WHERE bot_id = ?1 AND id = ?2", params![b, t], |r| r.get(0)).optional()?)).await?;
+    let Some(current) = current else { return Ok(()) };
+    let started = !sessions(app, bot, thread).is_empty();
+    let next = next_run(current.as_deref(), &conversation_id(bot, thread), started, incoming);
+    if current.as_deref() == Some(next.as_str()) {
+        return Ok(());
+    }
+    let (b, t, n) = (bot.to_string(), thread.to_string(), next.clone());
+    app.state_db.call(move |c| Ok(c.execute("UPDATE bot_thread SET run = ?3 WHERE bot_id = ?1 AND id = ?2", params![b, t, n])?)).await?;
+    if !next.is_empty() || current.is_some_and(|c| !c.is_empty()) {
+        app.bus.publish("bots", "threads", serde_json::json!({"id": bot}));
+    }
+    Ok(())
+}
+
+/// The run a thread belongs to, when it belongs to one.
+pub fn run_of(t: &BotThread) -> Option<&str> {
+    t.run.as_deref()
+}
+
+/// The run a session's messages carry: its thread's (`run_of`), None for a session that is no bot's thread or whose
+/// thread belongs to no run.
+pub async fn run_of_session(app: &App, s: &Session) -> Option<String> {
+    of_session(app, s).await.and_then(|t| t.run)
+}
+
+/// Every thread of a run's group (archived ones too), oldest first: the threads that record the run (its own thread
+/// included) and the other threads of their conversations.
+pub async fn run_threads(app: &App, run: &str) -> Result<Vec<BotThread>> {
+    let r = run.to_string();
+    app.state_db.call(move |db| {
+        let mut st = db.prepare(&format!("SELECT {COLUMNS} FROM bot_thread WHERE run = ?1 OR {CONVERSATION} IN (SELECT {CONVERSATION} FROM bot_thread WHERE run = ?1) ORDER BY created_at"))?;
+        let rows = st.query_map([r], row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }).await
 }
 
 /// Deletes a bot's thread rows (the bot is deleted).
@@ -539,7 +615,7 @@ mod tests {
 
     #[test]
     fn chat_page_keeps_open_conversations_whole_and_pages_archived_ones() {
-        let t = |bot: &str, id: &str, conv: &str, created: i64, archived: Option<i64>| BotThread { bot_id: bot.into(), id: id.into(), key: None, title: id.into(), created_at: created, archived_at: archived, renamed: false, conversation: conv.into() };
+        let t = |bot: &str, id: &str, conv: &str, created: i64, archived: Option<i64>| BotThread { bot_id: bot.into(), id: id.into(), key: None, title: id.into(), created_at: created, archived_at: archived, renamed: false, conversation: conv.into(), run: None };
         let rows = vec![
             // A conversation that continued in a new thread: its archived first thread stays.
             t("a", "first", "a:first", 1, Some(5)), t("a", "next", "a:first", 6, None), t("b", "joined", "a:first", 3, None),
@@ -552,7 +628,26 @@ mod tests {
     }
 
     fn thread(bot: &str, id: &str, conversation: Option<&str>) -> BotThread {
-        BotThread { id: id.into(), bot_id: bot.into(), key: None, title: "t".into(), created_at: 0, archived_at: None, renamed: false, conversation: conversation.map_or_else(|| conversation_id(bot, id), str::to_string) }
+        BotThread { id: id.into(), bot_id: bot.into(), key: None, title: "t".into(), created_at: 0, archived_at: None, renamed: false, conversation: conversation.map_or_else(|| conversation_id(bot, id), str::to_string), run: None }
+    }
+
+    #[test]
+    fn a_run_s_handoffs_join_its_group_until_another_message_detaches_them() {
+        let (root, own) = ("hubert:r1", "hubert:r1");
+        // The run's own thread names itself at its first message, and stays the root whatever reaches it later.
+        assert_eq!(next_run(None, own, false, Some(own)), own);
+        assert_eq!(next_run(Some(own), own, true, None), own);
+        assert_eq!(next_run(Some(own), own, true, Some("other:r2")), own);
+        // A thread a run's message starts records the run; the run's later messages (and answers) keep it.
+        assert_eq!(next_run(None, "py:c1", false, Some(root)), root);
+        assert_eq!(next_run(Some(root), "py:c1", true, Some(root)), root);
+        // The owner's message, another run's or one without a run detaches it for good.
+        assert_eq!(next_run(Some(root), "py:c1", true, None), "");
+        assert_eq!(next_run(Some(root), "py:c1", true, Some("other:r2")), "");
+        assert_eq!(next_run(Some(""), "py:c1", true, Some(root)), "");
+        // A thread started by a message without a run, or an older thread with history, never joins one.
+        assert_eq!(next_run(None, "py:c1", false, None), "");
+        assert_eq!(next_run(None, "py:c1", true, Some(root)), "");
     }
 
     #[test]

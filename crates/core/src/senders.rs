@@ -135,6 +135,7 @@ pub async fn agent(app: &App, session_id: &str) -> Result<MessageFrom> {
     if from.kind == SenderKind::Bot {
         from.request = Some(uuid::Uuid::new_v4().to_string());
         from.serves = serving(turn.as_ref());
+        from.run = crate::bot_threads::run_of_session(app, &s).await;
     }
     Ok(from)
 }

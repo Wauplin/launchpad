@@ -152,8 +152,10 @@ pub(crate) fn frame(ch: &Row, msg: &ChannelMessage, bot: &str, members: &[Member
 }
 
 /// The sender a delivered channel message carries (the bot chat shows "#name · Release" on the left).
-fn sender(ch: &Row, msg: &ChannelMessage, title: &str) -> MessageFrom {
-    MessageFrom { kind: SenderKind::Channel, id: ch.id.clone(), name: title.to_string(), by: Some(msg.author.name.clone()), hops: msg.hops, ..Default::default() }
+/// `run`: the routine run of the bot session that wrote it (`bot_threads::run_of_session`), so the receiving thread
+/// joins that run's group.
+fn sender(ch: &Row, msg: &ChannelMessage, title: &str, run: Option<String>) -> MessageFrom {
+    MessageFrom { kind: SenderKind::Channel, id: ch.id.clone(), name: title.to_string(), by: Some(msg.author.name.clone()), hops: msg.hops, run, ..Default::default() }
 }
 
 async fn insert(app: &App, msg: &ChannelMessage, bot: &str, state: &'static str, reason: Option<String>) -> Result<i64> {
@@ -255,7 +257,11 @@ async fn send(app: &App, ch: &Row, msg: &ChannelMessage, bot: &str, id: i64, mem
     let part = ChannelPart { channel: ch.id.clone(), first: msg.id, last: msg.id, deliveries: vec![id], digest: false };
     let (newest, files) = (msg.text.clone(), msg.files.clone());
     let combine = move |p: &ChannelPart| fr.text(p.first, p.last, p.deliveries.len(), &newest, &files);
-    match hooks::deliver_channel(app, bot, text, !owner, sender(ch, msg, title), part, attachments(&msg.files), combine).await {
+    let run = match msg.session_id.as_deref().and_then(|id| app.sessions.get(id)) {
+        Some(author) if !owner => launchpad_core::bot_threads::run_of_session(app, &author).await,
+        _ => None,
+    };
+    match hooks::deliver_channel(app, bot, text, !owner, sender(ch, msg, title, run), part, attachments(&msg.files), combine).await {
         Ok(Outcome::Sent(s)) => update(app, vec![id], "sent", None, Some(s.id), None).await,
         // The queue may already have sent the entry (`left_queue`): these only add to a row it has not changed.
         Ok(Outcome::Queued(why)) => after_enqueue(app, "UPDATE channel_delivery SET reason = ?2 WHERE id = ?1 AND state = 'queued' AND session_id IS NULL", id, why.into()).await,

@@ -2,7 +2,10 @@
 // grouped by state like the Agents list. A conversation (`BotThread.conversation`) is one row whatever the number of
 // its bots and threads (a follow-up thread keeps its conversation): its participants in the order they first appeared,
 // its most urgent state and its newest activity. Channels have their own section, except unread ones (Unread) and
-// archived ones (Archived). Pure, so it is tested without the app (tests/chatList.test.mjs).
+// archived ones (Archived). A routine run's handoffs (other conversations whose threads record the run,
+// `BotThread.run`) fold under the run's row as one group: they leave the sections, and the run's row takes their
+// question, failure or work (a handoff that finished adds nothing). Pure, so it is tested without the app
+// (tests/chatList.test.mjs).
 
 import type { Bot } from "../gen/Bot";
 import type { BotThread } from "../gen/BotThread";
@@ -48,6 +51,12 @@ export type ThreadChat = {
   line: string;
   last: number;
   section: ChatSection;
+  /** The routine run it belongs to (`BotThread.run`, the run's own conversation), when it is one of its handoffs. */
+  run: string | null;
+  /** A handoff shown inside its run's row: that row's ID. */
+  parent: string | null;
+  /** A run's row: the IDs of the handoff chats folded under it, oldest first. */
+  children: string[];
 };
 
 /** A bot channel or DM. */
@@ -180,10 +189,12 @@ export function buildChats({ bots, sessions, threads, channels, workspaceId, ask
       const [b, thread] = key.split("\n");
       if (b !== bot.id) continue;
       const s = list2.at(-1)!;
-      add({ id: thread, bot_id: b, key: null, title: s.title, created_at: list2[0].started_at, archived_at: s.status === "closed" ? s.status_since : null, conversation: `${b}:${thread}`, renamed: false });
+      add({ id: thread, bot_id: b, key: null, title: s.title, created_at: list2[0].started_at, archived_at: s.status === "closed" ? s.status_since : null, conversation: `${b}:${thread}`, renamed: false, run: null });
     }
   }
   const out: Chat[] = [];
+  // Each conversation's current sessions, for a run's row that takes its handoffs' states.
+  const currentOf = new Map<string, Session[]>();
   for (const [id, list] of conversations) {
     const mainId = mainBotOf(id);
     const order = participantOrder(list, mainId).filter((b) => mine.has(b));
@@ -206,6 +217,7 @@ export function buildChats({ bots, sessions, threads, channels, workspaceId, ask
     const routineThread = home.thread.key?.startsWith("routine:") ?? false;
     const routine = routineThread ? (home.session?.launch_spec.routine?.title ?? (home.session?.launch_spec.from?.kind === "routine" ? home.session.launch_spec.from.name : null) ?? home.thread.title) || "routine" : null;
     const status = state ? threadStatus(state) : archived ? { label: "Archived", tone: "idle" as const } : { label: "New", tone: "idle" as const };
+    currentOf.set(id, current);
     out.push({
       kind: "thread", id, pin: `conversation:${id}`, bot: home.bot, thread: home.thread.id, threads: list.map((t) => `${t.bot_id}\n${t.id}`), title: chatTitle(home.thread, [...home.all].sort((x, y) => x.started_at - y.started_at)[0] ?? null, home.session),
       participants: parts.map((p) => p.bot), session: state, sessionIds: all.map((s) => s.id), ...status,
@@ -213,8 +225,10 @@ export function buildChats({ bots, sessions, threads, channels, workspaceId, ask
       line: isNoUpdateText(answer) ? "No update (a routine with nothing to report)" : answer,
       last: Math.max(newest[0]?.status_since ?? 0, ...list.map((t) => t.archived_at ?? t.created_at)),
       section: sectionOf(current, archived),
+      run: list.find((t) => t.run && t.run !== id)?.run ?? null, parent: null, children: [],
     });
   }
+  foldRuns(out, currentOf);
   for (const c of channels ?? []) {
     if (c.workspace_id !== workspaceId) continue;
     const ask = asks?.get(c.id) ?? 0;
@@ -225,6 +239,35 @@ export function buildChats({ bots, sessions, threads, channels, workspaceId, ask
     });
   }
   return out.sort((a, b) => b.last - a.last || a.title.localeCompare(b.title));
+}
+
+/** A handoff's state that its run's row takes: a question, a failure, work, a sleep or a quota pause; a handoff that
+ * finished is part of the run, never unread on its own. */
+const handoffState = (s: Session) => !(s.status === "waiting" && !s.open_question && !s.sleep);
+
+/** Folds each handoff chat under its run's row (`parent`, `children`) when the run's row is there and open, or both
+ * are archived; a handoff whose run was archived without it stays a row of its own. The run's row then shows the most
+ * urgent state of its own sessions and its open handoffs' (`handoffState`). */
+function foldRuns(out: Chat[], currentOf: ReadonlyMap<string, Session[]>) {
+  const byId = new Map(out.filter((c): c is ThreadChat => c.kind === "thread").map((c) => [c.id, c]));
+  for (const c of byId.values()) {
+    const root = c.run ? byId.get(c.run) : undefined;
+    if (!root || root === c || (root.archived && !c.archived)) continue;
+    c.parent = root.id;
+    root.children.push(c.id);
+  }
+  for (const root of byId.values()) {
+    if (!root.children.length) continue;
+    const kids = root.children.map((id) => byId.get(id)!).sort((a, b) => a.last - b.last);
+    root.children = kids.map((k) => k.id);
+    const current = [...(currentOf.get(root.id) ?? []), ...kids.filter((k) => !k.archived).flatMap((k) => (currentOf.get(k.id) ?? []).filter(handoffState))];
+    const state = [...current].sort((a, b) => urgency(a) - urgency(b) || b.status_since - a.status_since)[0] ?? null;
+    if (state) Object.assign(root, threadStatus(state), { session: state });
+    root.section = sectionOf(current, root.archived);
+    root.unseen = current.some(unseenTurn);
+    root.sessionIds = [...root.sessionIds, ...kids.flatMap((k) => k.sessionIds)];
+    root.last = Math.max(root.last, ...kids.map((k) => k.last));
+  }
 }
 
 function channelLine(c: Channel): string {
@@ -263,7 +306,8 @@ export function filterChats<T extends Chat>(chats: readonly T[], { needle = "", 
  * go first, in a Pinned section of their own. */
 export function chatSections<T extends Chat>(chats: readonly T[], pinned?: readonly string[]): { section: ChatSection; chats: T[] }[] {
   const first = pinned?.length ? byTitle(pinned.map((p) => chats.find((c) => c.pin === p && !c.archived)).filter((c): c is T => !!c)) : [];
-  const rest = chats.filter((c) => !first.includes(c));
+  // A run's handoffs show inside its row, never in a section of their own.
+  const rest = chats.filter((c) => !first.includes(c) && !(c.kind === "thread" && c.parent));
   const of = (section: ChatSection) => section === "Pinned" ? first : section === "Channels" ? byTitle(rest.filter((c) => c.section === section)) : rest.filter((c) => c.section === section);
   return CHAT_SECTIONS.map((section) => ({ section, chats: of(section) })).filter((g) => g.chats.length > 0);
 }

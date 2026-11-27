@@ -374,6 +374,9 @@ pub struct SessionEvent {
     pub body: EventBody,
 }
 
+// A user message carries its sender (`MessageFrom`) inline: events are short-lived values on their way to the database
+// or a window, so the size of the largest variant does not matter.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventBody {
@@ -682,6 +685,12 @@ pub struct MessageFrom {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "number")]
     pub turn: Option<i64>,
+    /// The routine run the message belongs to (`bot_threads::run_of`: the run's thread, `<bot>:<thread>`), stamped by
+    /// Home from the sender session's thread (a bot's message, its answer, its channel post), never from a body: the
+    /// receiving thread joins that run's group (`bot_threads::note_run`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub run: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]

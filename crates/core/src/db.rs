@@ -353,6 +353,8 @@ CREATE TABLE IF NOT EXISTS folio_block_use (folio_id TEXT NOT NULL, name TEXT NO
     let thread_columns = conn.prepare("PRAGMA table_info(bot_thread)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !thread_columns.iter().any(|c| c == "conversation") { conn.execute_batch("ALTER TABLE bot_thread ADD COLUMN conversation TEXT;")?; }
     if !thread_columns.iter().any(|c| c == "renamed") { conn.execute_batch("ALTER TABLE bot_thread ADD COLUMN renamed INTEGER NOT NULL DEFAULT 0;")?; }
+    // Run provenance (`bot_threads::note_run`): the routine run a thread belongs to, '' for none, NULL undecided.
+    if !thread_columns.iter().any(|c| c == "run") { conn.execute_batch("ALTER TABLE bot_thread ADD COLUMN run TEXT; CREATE INDEX IF NOT EXISTS bot_thread_run ON bot_thread (run);")?; }
     // Files of bot channel messages (`launchpad_channels::channel::ChannelFile`, references to Home's uploads).
     let message_columns = conn.prepare("PRAGMA table_info(channel_message)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !message_columns.iter().any(|c| c == "files") { conn.execute_batch("ALTER TABLE channel_message ADD COLUMN files TEXT NOT NULL DEFAULT '[]';")?; }

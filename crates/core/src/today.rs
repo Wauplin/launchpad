@@ -281,19 +281,28 @@ fn group_local_prs(sessions: &mut [Item], local_prs: Vec<Item>) -> Vec<Item> {
 /// The core's own items: agents that need you (with their Local PRs), Local PRs to publish, runners to update.
 async fn core_items(app: &App) -> Vec<Item> {
     let mut out: Vec<Item> = app.sessions.list().iter().filter_map(session_item).collect();
-    // A bot's session: "Bot · thread title"; the sessions of one conversation of several bots: one card.
+    // A bot's session: "Bot · thread title"; the sessions of one conversation of several bots, or of one routine run
+    // with its handoffs: one card.
     if out.iter().any(|i| i.session_id.as_ref().and_then(|s| app.sessions.get(s)).is_some_and(|s| s.launch_spec.bot.is_some())) {
         let threads = crate::bot_threads::all(app).await.unwrap_or_default();
         let mut of: std::collections::HashMap<String, (String, String)> = Default::default();
+        let mut handoffs_done: std::collections::HashSet<String> = Default::default();
         for i in out.iter_mut() {
             let Some(b) = i.session_id.as_ref().and_then(|s| app.sessions.get(s)).and_then(|s| s.launch_spec.bot) else { continue };
             let thread = b.thread_id();
             let row = threads.get(&(b.id.clone(), thread.to_string()));
+            // A routine run's handoff that finished is part of its run, not a card of its own; a question or a
+            // failure of it stays (the run's card when both wait).
+            if i.kind == Kind::Finished && row.and_then(|t| t.run.as_deref()).is_some_and(|r| r != crate::bot_threads::conversation_id(&b.id, thread)) {
+                handoffs_done.insert(i.id.clone());
+            }
             let what = row.map(|t| t.title.clone()).unwrap_or_else(|| i.title.clone());
             i.title = format!("{} · {what}", b.name);
-            let conversation = row.map_or_else(|| crate::bot_threads::conversation_id(&b.id, thread), |t| t.conversation.clone());
+            // The threads of one routine run's group are one card too (its handoffs: `bot_threads::run_threads`).
+            let conversation = row.and_then(|t| t.run.clone()).or_else(|| row.map(|t| t.conversation.clone())).unwrap_or_else(|| crate::bot_threads::conversation_id(&b.id, thread));
             of.insert(i.id.clone(), (conversation, b.name.clone()));
         }
+        out.retain(|i| !handoffs_done.contains(&i.id));
         out = one_per_conversation(out, |i| of.get(&i.id).cloned());
     }
     // A finished agent whose merge stopped (conflict or failure): its main action is Fix merge.

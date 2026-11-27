@@ -123,8 +123,9 @@ async fn claimed(app: &App) -> Result<HashSet<String>> {
         .await
 }
 
-/// Claims the session's archive once (`outcome` "claimed"); false when it was claimed before.
-async fn claim(app: &App, session_id: &str) -> Result<bool> {
+/// Claims the session's archive once (`outcome` "claimed"); false when it was claimed before. Also used by run
+/// groups (`run_groups::archive_members`).
+pub(crate) async fn claim(app: &App, session_id: &str) -> Result<bool> {
     let id = session_id.to_string();
     app.state_db
         .call(move |c| Ok(c.execute("INSERT OR IGNORE INTO task_archive (session_id, at, outcome) VALUES (?1, ?2, 'claimed')", rusqlite::params![id, now_ms()])? == 1))
@@ -144,6 +145,11 @@ async fn settle(app: &App, session_id: &str, outcome: Option<String>) -> Result<
             Ok(())
         })
         .await
+}
+
+/// Records how a claimed archive ended (`run_groups`).
+pub(crate) async fn record(app: &App, session_id: &str, outcome: String) -> Result<()> {
+    settle(app, session_id, Some(outcome)).await
 }
 
 /// One pass at a time.

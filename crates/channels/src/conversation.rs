@@ -145,6 +145,7 @@ async fn answer(app: &App, s: &Session) -> Result<()> {
         reply_to: a.request.request.clone(),
         resumes: a.request.serves.clone(),
         turn: Some(a.claim),
+        run: mine.run.clone(),
         ..Default::default()
     };
     let to = To::Conversation { id: mine.conversation.clone(), title: String::new() };

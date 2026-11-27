@@ -145,7 +145,34 @@ async fn session(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Valu
     v["prompt"] = json!(x.launch_spec.text.chars().take(4000).collect::<String>());
     v["usage"] = json!(x.usage);
     v["workspace_id"] = json!(launchpad_core::kb::workspace_of_session(&s.app, &x.id).await);
+    if let Some(run) = run_json(&s.app, &x).await {
+        v["run"] = run;
+    }
     Ok(Json(crate::diagnostics::session_detail(&s, &x, v).await))
+}
+
+/// The routine run a bot session's thread belongs to (`bot_threads::run_threads`): its root (`<bot>:<thread>` of the
+/// run's own thread), the run's session and routine, a reference to open it, and every thread of its group with its
+/// session and state, so agents and the owner follow a handoff back to its run.
+async fn run_json(app: &launchpad_core::App, x: &launchpad_core::model::Session) -> Option<Value> {
+    use launchpad_core::bot_threads;
+    let root = bot_threads::run_of_session(app, x).await?;
+    let (bot, thread) = root.split_once(':')?;
+    let first = bot_threads::sessions(app, bot, thread).into_iter().next();
+    let threads = bot_threads::run_threads(app, &root).await.ok()?;
+    Some(json!({
+        "root": root,
+        "is_root": bot_threads::of(x) == Some(thread) && x.launch_spec.bot.as_ref().is_some_and(|b| b.id == bot),
+        "bot": bot,
+        "thread": thread,
+        "session": first.as_ref().map(|s| s.id.clone()),
+        "routine": first.as_ref().and_then(|s| s.launch_spec.from.as_ref().filter(|f| f.kind == launchpad_core::model::SenderKind::Routine).map(|f| f.name.clone())),
+        "ref": format!("lp:chat/{bot}/{thread}"),
+        "threads": threads.iter().map(|t| {
+            let s = bot_threads::session(app, &t.bot_id, &t.id);
+            json!({"bot": t.bot_id, "thread": t.id, "title": t.title, "archived": t.archived_at.is_some() || s.as_ref().is_some_and(|s| s.status == launchpad_core::model::SessionStatus::Closed), "session": s.as_ref().map(|s| s.id.clone()), "status": s.as_ref().map(|s| s.status)})
+        }).collect::<Vec<_>>(),
+    }))
 }
 
 /// Profiles without their environment (keys stay private), with the quota of each subscription login.

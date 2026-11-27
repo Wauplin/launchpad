@@ -32,7 +32,7 @@ const thread = (id: string, t: string) => world.sessions.filter((s) => s.launch_
 /** A bot's thread rows (Home's `bot_thread`). */
 const threadsOf = (id: string): BotThread[] => (world.botThreads[id] ??= []);
 const newThread = (b: Bot, key: string | null, title: string) => {
-  const t: BotThread = { bot_id: b.id, id: `demo-thread-${Math.random().toString(36).slice(2, 10)}`, key, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || "New thread", created_at: clock.now(), archived_at: null, conversation: "", renamed: false };
+  const t: BotThread = { bot_id: b.id, id: `demo-thread-${Math.random().toString(36).slice(2, 10)}`, key, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || "New thread", created_at: clock.now(), archived_at: null, conversation: "", renamed: false, run: null };
   t.conversation = `${b.id}:${t.id}`;
   threadsOf(b.id).push(t);
   threadsChanged(b.id);

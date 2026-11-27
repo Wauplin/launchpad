@@ -14,4 +14,9 @@ conversation: string,
 /**
  * The owner (or an agent) renamed it, by hand or with Auto: its title then names the chat (`chatTitle`).
  */
-renamed: boolean, };
+renamed: boolean, 
+/**
+ * The routine run it belongs to (`<bot>:<thread>` of the run's thread; the run's thread names itself), None when
+ * it belongs to none (`note_run`).
+ */
+run: string | null, };

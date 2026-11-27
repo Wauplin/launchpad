@@ -64,4 +64,10 @@ resumes?: string,
 /**
  * An answer: the `seq` of the answering session's message that started the turn whose final answer it is.
  */
-turn?: number, };
+turn?: number, 
+/**
+ * The routine run the message belongs to (`bot_threads::run_of`: the run's thread, `<bot>:<thread>`), stamped by
+ * Home from the sender session's thread (a bot's message, its answer, its channel post), never from a body: the
+ * receiving thread joins that run's group (`bot_threads::note_run`).
+ */
+run?: string, };

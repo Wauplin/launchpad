@@ -841,6 +841,12 @@ pub async fn message_with(app: &App, id: &str, m: Message) -> Result<Session> {
         bail!("{why}");
     }
     let mut thread_id = crate::bot_threads::resolve(app, id, &to, text.lines().find(|l| !l.trim().is_empty()).unwrap_or_default()).await?;
+    // The run group it joins: a routine run's thread is its own root; other threads take the run of the message.
+    let run = match &to {
+        crate::bot_threads::To::New { key: Some(k), .. } if k.starts_with("routine:") => Some(crate::bot_threads::conversation_id(id, &thread_id)),
+        _ => context.from.as_ref().and_then(|f| f.run.clone()),
+    };
+    crate::bot_threads::note_run(app, id, &thread_id, run.as_deref()).await?;
     let current = crate::bot_threads::session(app, id, &thread_id);
     let profile = if s.profile.is_none() && !s.profiles.is_empty() {
         current.as_ref().and_then(|c| config.profiles.iter().find(|p| Some(&p.id) == c.launch_spec.profile.as_ref() && s.profiles.contains(&p.id))).unwrap_or(profile)

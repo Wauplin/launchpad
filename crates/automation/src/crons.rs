@@ -1001,6 +1001,8 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
                 && only.id == s.id
                 && only.status == SessionStatus::Waiting
                 && !only.open_question
+                // A run whose handoffs started other threads stays for its group (`auto_archive`).
+                && crate::run_groups::open_members(app, &launchpad_core::bot_threads::conversation_id(&b.id, b.thread_id()), Some((&b.id, b.thread_id()))).await.is_ok_and(|m| m.is_empty())
                 && let Err(e) = launchpad_core::bot_threads::archive(app, &b.id, b.thread_id(), true).await
             {
                 tracing::warn!("archiving the thread of a quiet run of {}: {e:#}", r.title);
@@ -1010,6 +1012,8 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
     if was_run {
         // A run whose work is already on Home may go at once; else at `turn_saved` or the 30-second pass.
         auto_archive_soon(app);
+    } else if s.status == SessionStatus::Waiting && !s.open_question {
+        group_answer_ended(app, s, &records).await?;
     }
     if was_run || s.status != SessionStatus::Waiting || s.open_question {
         return Ok(());
@@ -1045,6 +1049,30 @@ pub fn turn_saved(app: &App, s: &Session) {
         }
     });
     tokio::spawn(task);
+}
+
+/// A bot routine run's thread ended Done again after a message of its own run group (an answer or receipt of a bot
+/// its handoff woke, `MessageFrom.run` = the run's thread): the run is still the routine's, so its Done state moves
+/// on (`RoutineRun.done_since`) and its auto archive still applies. A message of the owner or from outside the group
+/// leaves it, so the run stays.
+async fn group_answer_ended(app: &App, s: &Session, records: &[CronAgent]) -> Result<()> {
+    let Some(b) = &s.launch_spec.bot else { return Ok(()) };
+    let root = launchpad_core::bot_threads::conversation_id(&b.id, b.thread_id());
+    let ran = |x: &RoutineRun| x.session_id.as_deref() == Some(s.id.as_str()) && matches!(x.outcome, RunOutcome::Report | RunOutcome::NoUpdate) && !x.archived && x.done_since.is_some();
+    let Some(r) = records.iter().find(|r| r.bot_id.as_deref() == Some(b.id.as_str()) && r.history.iter().any(ran)) else { return Ok(()) };
+    if launchpad_core::senders::last_from(app, &s.id).await.and_then(|f| f.run).as_deref() != Some(root.as_str()) {
+        return Ok(());
+    }
+    let (sid, since) = (s.id.clone(), s.status_since);
+    modify(app, &r.id, move |r| {
+        if let Some(x) = r.history.iter_mut().rev().find(|x| x.session_id.as_deref() == Some(sid.as_str()) && matches!(x.outcome, RunOutcome::Report | RunOutcome::NoUpdate) && !x.archived && x.done_since.is_some()) {
+            x.done_since = Some(since);
+        }
+        Ok(())
+    })
+    .await?;
+    auto_archive_soon(app);
+    Ok(())
 }
 
 /// Starts the routines triggered by another agent's turn ending Done.
@@ -1131,12 +1159,25 @@ fn auto_archive_soon(app: &App) {
 }
 
 /// Home: archives the sessions of finished runs of routines with `auto_archive` (`auto_archive_ready`, then no
-/// waiting work in their worktrees). A bot routine archives the run's own thread only (`own_run_thread`), another
-/// routine only a session it launched. Each run is claimed (`archived`) before its archive, never tried again.
+/// waiting work in their worktrees). A bot routine archives the run's own thread with its whole run group
+/// (`run_groups`: only once every thread of it settled with nothing waiting, and the run's own thread was Done for a
+/// minute, so a handoff on its way is in the group), another routine only a session it launched. Each run is claimed
+/// (`archived`) before its archive, never tried again; threads that joined the group later go once they settle.
 async fn auto_archive(app: &App) -> Result<()> {
     let _pass = ARCHIVING.lock().await;
     let now = now_ms();
     for r in list(app).await?.into_iter().filter(|r| r.auto_archive) {
+        // Threads of an archived run's group that joined late or settled after it: they go on their own.
+        if r.bot_id.is_some() {
+            for run in r.history.iter().filter(|x| x.archived && x.done_since.is_some_and(|d| now - d <= AUTO_ARCHIVE_WINDOW_MS)) {
+                let Some(b) = run.session_id.as_deref().and_then(|id| app.sessions.get(id)).and_then(|s| s.launch_spec.bot) else { continue };
+                let root = launchpad_core::bot_threads::conversation_id(&b.id, b.thread_id());
+                let members = crate::run_groups::open_members(app, &root, Some((&b.id, b.thread_id()))).await?;
+                if !members.is_empty() && matches!(crate::run_groups::group_waits(app, &root, &members, now).await, Ok(None)) {
+                    crate::run_groups::archive_members(app, &root, &members).await;
+                }
+            }
+        }
         for run in r.history.iter().filter(|x| x.done_since.is_some_and(|d| now - d <= AUTO_ARCHIVE_WINDOW_MS) && !x.archived) {
             let Some(s) = run.session_id.as_deref().and_then(|id| app.sessions.get(id)) else { continue };
             // Work that waits, or a check that failed, keeps it.
@@ -1144,10 +1185,18 @@ async fn auto_archive(app: &App) -> Result<()> {
                 continue;
             }
             // Only the routine's own session: a bot routine's run in its own thread, another routine's launch.
+            let mut members = vec![];
             let thread = match (&r.bot_id, &s.launch_spec.bot) {
                 (Some(bot), Some(b)) if b.id == *bot => {
                     let file = r.file.clone().unwrap_or_else(|| r.id.clone());
                     let Some(t) = launchpad_core::bot_threads::get(app, bot, b.thread_id()).await?.filter(|t| own_run_thread(t, &launchpad_core::bot_threads::sessions(app, bot, b.thread_id()), &file, &s.id)) else { continue };
+                    // Its run group: the threads its handoffs started, all settled with nothing waiting (a failed,
+                    // asking, sleeping or working one keeps the whole run), nor anything left for the owner in it.
+                    let root = launchpad_core::bot_threads::conversation_id(bot, &t.id);
+                    members = crate::run_groups::open_members(app, &root, Some((bot, &t.id))).await?;
+                    if now - s.status_since < crate::task_archive::SETTLE_MS || !matches!(crate::run_groups::group_waits(app, &root, &members, now).await, Ok(None)) || !matches!(crate::task_archive::waits(app, &s).await, Ok(None)) {
+                        continue;
+                    }
                     Some((bot.clone(), t.id))
                 }
                 (None, None) if s.launch_spec.routine.as_ref().is_some_and(|l| l.id == r.id) => None,
@@ -1165,7 +1214,12 @@ async fn auto_archive(app: &App) -> Result<()> {
                 continue;
             }
             let done = match &thread {
-                Some((bot, id)) => launchpad_core::bot_threads::archive(app, bot, id, true).await.map(|_| ()),
+                // Its group first, each thread claimed (a thread brought back later is never archived again), then
+                // the run's own thread.
+                Some((bot, id)) => match crate::run_groups::archive_members(app, &launchpad_core::bot_threads::conversation_id(bot, id), &members).await {
+                    0 => launchpad_core::bot_threads::archive(app, bot, id, true).await.map(|_| ()),
+                    n => Err(anyhow::anyhow!("{n} thread(s) of its run group were not archived")),
+                },
                 None => launchpad_core::runners::session_action(app, &s.id, "close").await,
             };
             if let Err(e) = done {
@@ -1495,7 +1549,7 @@ mod tests {
 
     #[test]
     fn auto_archive_takes_only_the_run_s_own_bot_thread() {
-        let thread = |id: &str, key: Option<&str>, archived: bool| launchpad_core::bot_threads::BotThread { id: id.into(), bot_id: "b".into(), key: key.map(str::to_string), title: "t".into(), created_at: 0, archived_at: archived.then_some(1), renamed: false, conversation: format!("b:{id}") };
+        let thread = |id: &str, key: Option<&str>, archived: bool| launchpad_core::bot_threads::BotThread { id: id.into(), bot_id: "b".into(), key: key.map(str::to_string), title: "t".into(), created_at: 0, archived_at: archived.then_some(1), renamed: false, conversation: format!("b:{id}"), run: None };
         let one = [done_session("s1", 1)];
         let own = thread("t1", Some("routine:routines/daily.toml"), false);
         assert!(own_run_thread(&own, &one, "routines/daily.toml", "s1"));

@@ -4,7 +4,8 @@
 // a grey "#" or "↔" mark and the word Channel or DM. A row opens the chat; its ⋯ pins it (a sidebar shortcut),
 // renames (in the chat's header), mutes a channel for you (no unread mark or count), archives or brings back a conversation and opens its trace in Agents. Channels are archived from their
 // settings, never from this list. On the phone, swiping an open conversation's row to the right uncovers Archive; only a
-// tap on it archives (`SwipeReveal`).
+// tap on it archives (`SwipeReveal`). A routine run whose handoffs started other chats is one group: its row's
+// handoffs chip expands the handoff chats under it (indented), which never show in a section of their own.
 
 import { copyRefLink } from "@/lib/refActions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -41,10 +42,14 @@ const HEADER = 34;
 /** States whose pill tells more than the section heading. */
 const INFORMATIVE = new Set(["Question", "Quota paused", "Failed", "Interrupted", "Retry pending"]);
 
-type RowProps = { chat: Chat; selected: boolean; pinned: boolean; onPin: (c: Chat, pinned: boolean) => void; onArchive: (c: Chat, archived: boolean) => void; onRename: (c: Chat) => void; archiving: boolean };
+type RowProps = { chat: Chat; selected: boolean; pinned: boolean; onPin: (c: Chat, pinned: boolean) => void; onArchive: (c: Chat, archived: boolean) => void; onRename: (c: Chat) => void; archiving: boolean;
+  /** A handoff row inside its run's group. */
+  nested?: boolean;
+  /** A run's row with handoffs: whether they show, and the toggle. */
+  expanded?: boolean; onExpand?: (c: Chat) => void };
 
 /** One chat, styled like an agent row. Callbacks are stable, so a bus update re-renders only the rows that changed. */
-const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive, onRename, archiving }: RowProps) {
+const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive, onRename, archiving, nested = false, expanded = false, onExpand }: RowProps) {
   const navigate = useNavigate();
   const phone = usePhone();
   const thread = chat.kind === "thread" ? chat : null;
@@ -59,7 +64,7 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
       action={{ label: "Archive", icon: "archive", disabled: running || archiving, title: running ? "Stop its turn first to archive this chat" : `Archive “${chat.title}”: it stays under Archived`, onClick: () => onArchive(chat, true) }}>
     <div className="group relative" data-tour="chats.row" data-tour-id={chat.id}>
       <Link {...link} aria-label={label} aria-current={selected ? "page" : undefined}
-        style={{ height: ROW }} className={`grid w-full grid-cols-[18px_1fr_auto] content-start gap-x-2 gap-y-1 border-b border-line-2 px-3 py-2 text-left text-ink no-underline hover:bg-chrome ${selected ? "bg-select hover:bg-select" : ""}`}>
+        style={{ height: ROW }} className={`grid w-full grid-cols-[18px_1fr_auto] content-start gap-x-2 gap-y-1 border-b border-line-2 py-2 pr-3 text-left text-ink no-underline hover:bg-chrome ${nested ? "pl-8" : "pl-3"} ${selected ? "bg-select hover:bg-select" : ""}`}>
         <span className="row-span-2 mt-px"><ChatMark chat={chat} /></span>
         <span className={`flex min-w-0 items-center gap-1.5 text-[13px] leading-[1.35] ${chat.archived ? "font-medium text-ink-2" : bold ? "font-semibold" : "font-medium"}`} title={chat.title}>
           {thread?.routine && <RoutineMark routine={thread.routine} />}
@@ -73,9 +78,14 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
         </span>
         <span className="agent-row-line col-span-2 line-clamp-2 pr-8 text-[12px] leading-[1.3] text-ink-3" title={chat.line ? `${who} · ${chat.line}` : who}>
           {chat.kind === "channel" ? <span className="mr-1.5 inline-flex h-4 items-center rounded border border-line px-1 align-[1px] text-[11px] font-semibold text-ink-2">{who}</span> : <span className="text-ink-2">{who}</span>}
+          {nested && <span className="text-ink-3"> · handoff</span>}
           {chat.line && <>{chat.kind === "thread" ? " · " : ""}<span className={bold ? "text-ink-2" : ""}>{chat.line}</span></>}
         </span>
       </Link>
+      {thread && thread.children.length > 0 && onExpand && <button type="button" className="lp-chip absolute right-9 bottom-1.5" aria-expanded={expanded}
+        title={`${expanded ? "Hide" : "Show"} the ${thread.children.length} chat${thread.children.length === 1 ? "" : "s"} this run handed off to`} onClick={() => onExpand(chat)}>
+        <Icon name="chev" size={12} className={expanded ? "" : "-rotate-90"} />{thread.children.length}
+      </button>}
       <span className="agent-row-action lp-row-more absolute right-1.5 bottom-1.5">
         <MoreMenu label={`More actions for ${chat.title}`}>{(close) => <>
           <MenuItem icon={<Icon name="pin" size={14} />} label={pinned ? "Unpin" : "Pin"} detail={pinned ? "Remove its shortcut from the sidebar" : "A shortcut in the sidebar, first in the phone's list"} onClick={() => { close(); onPin(chat, !pinned); }} />
@@ -170,6 +180,10 @@ export function ChatList() {
   const pin = usePinChat();
   const navigate = useNavigate();
   const { archive, busy } = useArchiveThread();
+  // Run groups shown open (their handoff chats under the run's row), by the run's chat ID.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const onExpand = useCallback((c: Chat) => setExpanded((now) => { const next = new Set(now); if (next.has(c.id)) next.delete(c.id); else next.add(c.id); return next; }), []);
+  const byId = useMemo(() => new Map(chats.map((c) => [c.id, c])), [chats]);
 
   // Stable callbacks for the memoized rows.
   const actions = useRef({ pin, archive, qc, navigate });
@@ -189,13 +203,16 @@ export function ChatList() {
       .catch(toastError);
   }, []);
 
-  type Item = { kind: "section"; section: ChatSection; count: number } | { kind: "chat"; chat: Chat } | { kind: "more"; left: number };
+  type Item = { kind: "section"; section: ChatSection; count: number } | { kind: "chat"; chat: Chat; nested?: boolean } | { kind: "more"; left: number };
   const items: Item[] = [];
   for (const g of groups) {
     items.push({ kind: "section", section: g.section, count: g.chats.length });
     // A search or a filter shows every match, collapsed sections included.
     if (collapsed[g.section] && !search && !chosen.length) continue;
-    for (const chat of g.chats) items.push({ kind: "chat", chat });
+    for (const chat of g.chats) {
+      items.push({ kind: "chat", chat });
+      if (chat.kind === "thread" && expanded.has(chat.id)) for (const id of chat.children) { const child = byId.get(id); if (child) items.push({ kind: "chat", chat: child, nested: true }); }
+    }
     // Home sends a page of archived conversations: Show more loads the next one.
     if (g.section === "Archived" && archivedMore > 0) items.push({ kind: "more", left: archivedMore });
   }
@@ -224,7 +241,8 @@ export function ChatList() {
           {virtual.getVirtualItems().map((v) => {
             const item = items[v.index];
             return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
-              {item.kind === "chat" ? <ChatRow chat={item.chat} selected={item.chat.id === selected} pinned={pinned.has(item.chat.pin)} onPin={onPin} onArchive={onArchive} onRename={onRename} archiving={item.chat.kind === "thread" && busy(item.chat.bot.id, item.chat.thread)} />
+              {item.kind === "chat" ? <ChatRow chat={item.chat} selected={item.chat.id === selected} pinned={pinned.has(item.chat.pin)} onPin={onPin} onArchive={onArchive} onRename={onRename} archiving={item.chat.kind === "thread" && busy(item.chat.bot.id, item.chat.thread)}
+                  nested={item.nested} expanded={expanded.has(item.chat.id)} onExpand={onExpand} />
                 : item.kind === "section" ? <SectionHeader section={item.section} count={item.count} collapsed={!!collapsed[item.section] && !filtering} onToggle={() => toggle(item.section)} />
                 : <button className="px-3 py-2 text-left text-[12px] text-teal-ink hover:underline" onClick={showMoreArchived}>Show more ({item.left} more archived)</button>}
             </div>;

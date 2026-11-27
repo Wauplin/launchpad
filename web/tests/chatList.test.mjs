@@ -102,3 +102,34 @@ test("channels and pinned chats list by name, ignoring case; other sections stay
   assert.deepEqual(pinned[0].chats.map((c) => c.id), ["Alpha", "beta", "zeta"]);
   assert.deepEqual(chats.map((c) => c.id).slice(0, 2), ["zeta", "beta"]);
 });
+
+test("a routine run's handoffs fold under its row and only their questions, failures and work count", () => {
+  const bots = [bot("h"), bot("py"), bot("docs")];
+  const run = "h:run";
+  const threads = new Map([
+    ["h", [thread("h", "run", 10, { key: "routine:brief.toml", run })]],
+    // Python's #hub thread that the run's post woke, and Docs' thread that Python's post woke in turn.
+    ["py", [thread("py", "hub", 20, { key: "channel:hub", run })]],
+    ["docs", [thread("docs", "hub", 30, { key: "channel:hub", run }), thread("docs", "own", 5)]],
+  ]);
+  const build = (extra = {}) => buildChats({ bots, sessions: [session("h", "run", 100), session("py", "hub", 110, { seen_at: 0 }), session("docs", "hub", 120, extra), session("docs", "own", 50)], threads, channels: [], workspaceId: "w" });
+  let chats = build();
+  const root = chats.find((c) => c.id === run);
+  assert.deepEqual(root.children, ["py:hub", "docs:hub"]);
+  assert.equal(chats.find((c) => c.id === "py:hub").parent, run);
+  // An unseen finished handoff is part of the run: no Unread row of its own, the run stays Done.
+  let sections = Object.fromEntries(chatSections(chats).map((g) => [g.section, g.chats.map((c) => c.id)]));
+  assert.deepEqual(sections, { Done: [run, "docs:own"] });
+  assert.equal(root.sessionIds.length, 3);
+  // A handoff that fails or asks surfaces the whole run, naming its state.
+  chats = build({ status: "error", seen_at: 0 });
+  sections = Object.fromEntries(chatSections(chats).map((g) => [g.section, g.chats.map((c) => c.id)]));
+  assert.deepEqual(sections, { Unread: [run], Done: ["docs:own"] });
+  assert.equal(chats.find((c) => c.id === run).label, "Failed");
+  chats = build({ open_question: true });
+  assert.equal(chats.find((c) => c.id === run).section, "Needs you");
+  // A run archived without its handoff leaves the handoff a row of its own.
+  const archived = new Map([...threads, ["h", [thread("h", "run", 10, { key: "routine:brief.toml", run, archived_at: 200 })]]]);
+  chats = buildChats({ bots, sessions: [session("h", "run", 100, { status: "closed" }), session("py", "hub", 110), session("docs", "hub", 120), session("docs", "own", 50)], threads: archived, channels: [], workspaceId: "w" });
+  assert.equal(chats.find((c) => c.id === "py:hub").parent, null);
+});

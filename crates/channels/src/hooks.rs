@@ -602,11 +602,18 @@ fn join(w: &mut Queued, q: &Queued, combine: Combine<'_>) -> i64 {
     w.attachments = q.attachments.clone();
     // The newest sender, with the highest hop of the bots' messages it carries (an owner's message restarts at 0).
     let prev = w.from.as_ref().map_or(0, |f| f.hops);
+    let prev_run = w.from.as_ref().and_then(|f| f.run.clone());
     w.from = q.from.clone();
     if q.automatic
         && let Some(f) = w.from.as_mut()
     {
         f.hops = f.hops.max(prev);
+    }
+    // One combined delivery belongs to a run only when all of its messages do.
+    if let Some(f) = w.from.as_mut()
+        && f.run != prev_run
+    {
+        f.run = None;
     }
     w.automatic &= q.automatic;
     first
@@ -916,6 +923,20 @@ mod tests {
         let plain = Queued { attachments: vec![], channel: part(45, 13), ..serde_json::from_str(&serde_json::to_string(&owner).unwrap()).unwrap() };
         join(&mut w, &plain, Box::new(|c: &ChannelPart| c.last.to_string()));
         assert!(w.attachments.is_empty());
+    }
+
+    #[test]
+    fn a_combined_channel_delivery_keeps_a_run_only_when_all_its_messages_have_it() {
+        let from = |run: Option<&str>| Some(MessageFrom { kind: SenderKind::Channel, id: "c1".into(), hops: 1, run: run.map(str::to_string), ..Default::default() });
+        let part = |m: i64| Some(ChannelPart { channel: "c1".into(), first: m, last: m, deliveries: vec![m], digest: false });
+        let entry = |run, m| Queued { target: Target::Bot { id: "b".into() }, thread: None, context: None, attachments: vec![], text: String::new(), automatic: true, telegram: false, from: from(run), channel: part(m), due: None, hold_while_paused: false };
+        let mut w = entry(Some("hubert:r1"), 1);
+        join(&mut w, &entry(Some("hubert:r1"), 2), Box::new(|_: &ChannelPart| String::new()));
+        assert_eq!(w.from.as_ref().unwrap().run.as_deref(), Some("hubert:r1"));
+        join(&mut w, &entry(Some("py:r2"), 3), Box::new(|_: &ChannelPart| String::new()));
+        assert_eq!(w.from.as_ref().unwrap().run, None);
+        join(&mut w, &entry(None, 4), Box::new(|_: &ChannelPart| String::new()));
+        assert_eq!(w.from.as_ref().unwrap().run, None);
     }
 
     #[test]

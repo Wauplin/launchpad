@@ -20,6 +20,7 @@ pub mod oracle_tools;
 pub mod oracle_views;
 pub mod oracles;
 pub mod proposals;
+pub mod run_groups;
 pub mod schedules;
 pub mod task_archive;
 pub mod today;
