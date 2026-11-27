@@ -368,7 +368,7 @@ mod tests {
     }
 
     fn thread(id: &str, key: Option<&str>, conversation: &str) -> BotThread {
-        BotThread { id: id.into(), bot_id: "b".into(), key: key.map(str::to_string), title: "T".into(), created_at: 0, archived_at: None, conversation: conversation.into(), renamed: false }
+        BotThread { id: id.into(), bot_id: "b".into(), key: key.map(str::to_string), title: "T".into(), created_at: 0, archived_at: None, conversation: conversation.into(), renamed: false, run: None }
     }
 
     fn from(kind: SenderKind, accepted: bool) -> Option<MessageFrom> {
