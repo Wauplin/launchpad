@@ -115,6 +115,8 @@ pub async fn search(app: &App, ws: &str, q: &Search) -> Result<String> {
     };
     // The reranked answer first; when it fails or takes too long (a small Home), the fused order without reranking.
     let mut degraded = None;
+    let svc = index::service(app);
+    let reading = svc.reader.lock().await;
     let out = match run(CANDIDATES.max(wanted + 1), RECALL_LIMIT).await {
         Ok(out) if out.ok() => out,
         first => {
@@ -130,6 +132,7 @@ pub async fn search(app: &App, ws: &str, q: &Search) -> Result<String> {
             out
         }
     };
+    drop(reading);
     let hits = if q.oneline { funes::parse_oneline(&out.stdout) } else { funes::parse_hits(&out.stdout) };
     let config = app.config.get().home.recall;
     let sessions: std::collections::HashMap<String, Session> = workspace_sessions(app, ws).await?.into_iter().map(|s| (s.id.clone(), s)).collect();

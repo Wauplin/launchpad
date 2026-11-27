@@ -75,12 +75,13 @@ fn oracle_read(method: &Method, path: &str) -> bool {
     *method == Method::GET || (*method == Method::POST && p.len() == 5 && p[4] == "run")
 }
 
-/// `launchpad recall …` reads (GET `/api/recall/{workspace}/search|get|status` and `/api/recall/config`): every access
-/// level, in the session's own workspace (`within_workspace`); Home also checks that a bot's session has `recall` on
-/// in its bot.toml. Backfill, rebuild and the settings are admin actions (`recall.*`).
+/// `launchpad recall …` reads (GET `/api/recall/{workspace}/search|get|status`): every access level, in the session's
+/// own workspace (`within_workspace`); Home also checks that a bot's session has `recall` on in its bot.toml.
+/// Backfill, rebuild and the settings are admin actions (`recall.*`); the settings (`/api/recall/config`, Home-wide:
+/// they name hidden sessions and workspaces of every workspace) are read by admin access only.
 fn recall_read(method: &Method, path: &str) -> bool {
     let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    *method == Method::GET && p.len() >= 3 && p[..2] == ["api", "recall"] && (p[2..] == ["config"] || (p.len() == 4 && !p[2].is_empty() && matches!(p[3], "search" | "get" | "status")))
+    *method == Method::GET && p.len() == 4 && p[..2] == ["api", "recall"] && !p[2].is_empty() && matches!(p[3], "search" | "get" | "status")
 }
 
 /// `launchpad oracle test` (`oracle.test` with a draft): propose access, in the session's own workspace; Home runs
@@ -1042,7 +1043,9 @@ mod tests {
             assert_eq!(tool_need(&Method::GET, p), Some(LaunchpadAccess::Read), "{p}");
             assert_eq!(names(&Method::GET, p), Names::Workspace("w1"), "{p}");
         }
-        assert_eq!(tool_need(&Method::GET, "/api/recall/config"), Some(LaunchpadAccess::Read));
+        // The Home-wide settings: admin access only, also to read.
+        assert_eq!(tool_need(&Method::GET, "/api/recall/config"), None);
+        assert!(!read_allowed("/api/recall/config") && admin_direct(&Method::GET, "/api/recall/config"));
         assert_eq!(names(&Method::PATCH, "/api/recall/config"), Names::Shared);
         for (m, p) in [(Method::POST, "/api/recall/w1/backfill"), (Method::POST, "/api/recall/w1/rebuild"), (Method::PATCH, "/api/recall/config")] {
             assert_eq!(tool_need(&m, p), None, "{m} {p}");

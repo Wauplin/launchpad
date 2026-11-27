@@ -146,7 +146,8 @@ impl Ledger {
     pub fn set_skip(&self, id: &str, reason: Option<&str>, now: i64) -> Result<()> {
         let c = self.conn()?;
         c.execute("INSERT OR IGNORE INTO session (session_id) VALUES (?1)", [id])?;
-        c.execute("UPDATE session SET skip = ?2, updated_at = ?3 WHERE session_id = ?1", params![id, reason, now])?;
+        // A session that is left out no longer counts as failed.
+        c.execute("UPDATE session SET skip = ?2, error = CASE WHEN ?2 IS NULL THEN error END, failures = CASE WHEN ?2 IS NULL THEN failures ELSE 0 END, updated_at = ?3 WHERE session_id = ?1", params![id, reason, now])?;
         Ok(())
     }
 
@@ -220,6 +221,10 @@ mod tests {
         assert_eq!((t.sessions, t.turns, t.blocks, t.truncated_blocks, t.failed, t.newest_turn), (1, 3, 7, 1, 1, 30));
         assert_eq!(t.skipped, BTreeMap::from([("archived".to_string(), 1), ("empty".to_string(), 1)]));
         assert_eq!(l.failures(5).unwrap()[0].session_id, "f");
+        // A failed session that is then left out (hidden, archived) is no longer a failure.
+        l.set_skip("f", Some("hidden"), 105).unwrap();
+        assert_eq!(l.totals().unwrap().failed, 0);
+        l.set_error("f", "again", 105).unwrap();
         // A later success clears the failure.
         l.commit("f", 3, &[TurnRow { fseq: 0, lp_seq: 1, lp_end: 2, ts: 40 }], 1, 0, 106).unwrap();
         assert_eq!(l.totals().unwrap().failed, 0);

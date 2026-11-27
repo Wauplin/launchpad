@@ -30,7 +30,7 @@ launchpad recall status
 - `--oneline` lists one line per hit, for a few hundred tokens: use it to choose what to read.
 - `recall get` reads the stored events themselves, with the same conversion as the index.
 - The search is limited to the caller's workspace. Read access is enough; a bot's session also needs `recall = true` in its `bot.toml`.
-- On a slow Home, an answer that takes too long comes back without reranking, and says so.
+- Home answers one search at a time. On a slow Home, an answer that takes too long comes back without reranking, and says so.
 
 ## Backfill
 

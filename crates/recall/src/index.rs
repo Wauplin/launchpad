@@ -40,6 +40,8 @@ pub struct Service {
     dirty: Mutex<HashMap<String, u32>>,
     wake: tokio::sync::Notify,
     writer: tokio::sync::Mutex<()>,
+    /// One search at a time for all of Home: each loads both models (about 0.9 GB), and Home's CPU is small.
+    pub(crate) reader: tokio::sync::Mutex<()>,
     /// Workspaces whose backfill runs now.
     running: Mutex<HashSet<String>>,
 }
@@ -139,7 +141,12 @@ async fn prepare(app: &App, ledger: &Ledger, s: &Session) -> Result<Prepared> {
         if matches!(row.skip.as_deref(), Some("archived" | "hidden")) {
             ledger.commit(&s.id, row.cursor, &[], 0, 0, now_ms())?;
         }
-        return Ok(Prepared::Nothing { lagging: false });
+        // Counted like `plan` counts it: left out, not up to date.
+        return Ok(match row.skip.as_deref() {
+            Some("empty") => Prepared::Skipped("empty"),
+            Some("unconvertible") => Prepared::Skipped("unconvertible"),
+            _ => Prepared::Nothing { lagging: false },
+        });
     }
     let events = app.sessions.events(app, &s.id, row.cursor).await?;
     let settled = !s.status.is_running() && now_ms() - s.status_since > SETTLE_MS;
@@ -147,7 +154,9 @@ async fn prepare(app: &App, ledger: &Ledger, s: &Session) -> Result<Prepared> {
     if through <= row.cursor {
         if settled && events.is_empty() {
             if row.cursor == 0 {
-                // It has stored events, and none of them reads.
+                // It has stored events, and none of them reads. The cursor moves, so it is not counted as left to
+                // index (and the worker starts no catch-up pass for it); a new event makes it tried again.
+                ledger.commit(&s.id, s.last_seq, &[], 0, 0, now_ms())?;
                 ledger.set_skip(&s.id, Some("unconvertible"), now_ms())?;
                 return Ok(Prepared::Skipped("unconvertible"));
             }

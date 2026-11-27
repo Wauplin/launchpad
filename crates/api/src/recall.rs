@@ -88,9 +88,18 @@ struct SetConfig {
     hidden: Option<Vec<String>>,
 }
 
-async fn set_config(State(s): State<Ctx>, Json(b): Json<SetConfig>) -> ApiResult<RecallConfig> {
+async fn set_config(State(s): State<Ctx>, agent: Option<Extension<AgentSession>>, Json(mut b): Json<SetConfig>) -> ApiResult<RecallConfig> {
     if s.app.paths.role != launchpad_core::role::Role::Home {
         return Err(ApiError::bad_request("recall lives on Home"));
+    }
+    // The hidden list is Home-wide. An agent changes only its own workspace's part of it: the entries of other
+    // workspaces stay as they are, and it adds none of theirs.
+    if let (Some(agent), Some(given)) = (&agent, b.hidden.take()) {
+        let ws = launchpad_core::kb::workspace_of_session(&s.app, &agent.0.0).await.ok_or_else(|| ApiError::bad_request("this session has no workspace"))?;
+        let own: std::collections::HashSet<String> = index::workspace_sessions(&s.app, &ws).await.map_err(bad)?.into_iter().map(|x| x.id).collect();
+        let mut hidden: Vec<String> = s.app.config.get().home.recall.hidden.into_iter().filter(|h| !own.contains(h)).collect();
+        hidden.extend(given.into_iter().map(|h| h.trim().to_string()).filter(|h| own.contains(h)));
+        b.hidden = Some(hidden);
     }
     let saved = s
         .app
