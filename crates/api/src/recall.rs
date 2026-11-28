@@ -47,22 +47,40 @@ async fn caller_bot(s: &Ctx, agent: &Option<Extension<AgentSession>>) -> Result<
     Ok(Some(bot.id))
 }
 
+/// The search's query string. It lists the fields of `query::Search` itself, without `#[serde(flatten)]`: query
+/// strings only carry text, and flattened numbers and booleans (`k=2`, `oneline=true`) would not parse.
 #[derive(Deserialize)]
 struct SearchQuery {
-    #[serde(flatten)]
-    search: query::Search,
+    q: String,
+    k: Option<usize>,
+    since: Option<String>,
+    until: Option<String>,
+    #[serde(rename = "type")]
+    block_type: Option<String>,
+    bot: Option<String>,
+    #[serde(default)]
+    oneline: bool,
     /// Only the calling bot's own sessions.
     #[serde(default)]
     mine: bool,
 }
 
-async fn search(State(s): State<Ctx>, Path(ws): Path<String>, agent: Option<Extension<AgentSession>>, Query(mut q): Query<SearchQuery>) -> ApiResult<Value> {
+impl SearchQuery {
+    /// The search, and whether it is narrowed to the calling bot (`mine`).
+    fn split(self) -> (query::Search, bool) {
+        let SearchQuery { q, k, since, until, block_type, bot, oneline, mine } = self;
+        (query::Search { q, k, since, until, block_type, bot, oneline }, mine)
+    }
+}
+
+async fn search(State(s): State<Ctx>, Path(ws): Path<String>, agent: Option<Extension<AgentSession>>, Query(q): Query<SearchQuery>) -> ApiResult<Value> {
     home(&s, &ws).await?;
     let bot = caller_bot(&s, &agent).await?;
-    if q.mine {
-        q.search.bot = Some(bot.ok_or_else(|| ApiError::bad_request("--mine is for a bot's session; name a bot with --bot <slug>"))?);
+    let (mut search, mine) = q.split();
+    if mine {
+        search.bot = Some(bot.ok_or_else(|| ApiError::bad_request("--mine is for a bot's session; name a bot with --bot <slug>"))?);
     }
-    Ok(Json(json!({ "text": query::search(&s.app, &ws, &q.search).await.map_err(bad)? })))
+    Ok(Json(json!({ "text": query::search(&s.app, &ws, &search).await.map_err(bad)? })))
 }
 
 async fn read(State(s): State<Ctx>, Path(ws): Path<String>, agent: Option<Extension<AgentSession>>, Query(q): Query<query::Get>) -> ApiResult<Value> {
@@ -161,4 +179,28 @@ async fn rebuild(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Valu
     let plan = index::plan(&s.app, &ws).await.map_err(bad)?;
     let started = index::start_backfill(&s.app, &ws, false);
     Ok(Json(json!({ "started": started, "plan": plan })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse<T: serde::de::DeserializeOwned>(query: &str) -> T {
+        let uri: axum::http::Uri = format!("/api/recall/ws/x?{query}").parse().unwrap();
+        Query::<T>::try_from_uri(&uri).unwrap_or_else(|e| panic!("{query}: {e}")).0
+    }
+
+    /// The query strings the CLI sends parse through the handlers' own extractors, typed values included.
+    #[test]
+    fn query_strings_parse() {
+        let (s, mine) = parse::<SearchQuery>("q=x&k=2&oneline=true&mine=true&type=text&since=2026-01-01&bot=scout").split();
+        assert_eq!((s.q.as_str(), s.k, s.oneline, mine), ("x", Some(2), true, true));
+        assert_eq!((s.block_type.as_deref(), s.since.as_deref(), s.until, s.bot.as_deref()), (Some("text"), Some("2026-01-01"), None, Some("scout")));
+        let (s, mine) = parse::<SearchQuery>("q=two+words").split();
+        assert_eq!((s.q.as_str(), s.k, s.oneline, mine), ("two words", None, false, false));
+        let g = parse::<query::Get>("session=abc&seq=12");
+        assert_eq!((g.session.as_str(), g.seq, g.from, g.to), ("abc", Some(12), None, None));
+        let g = parse::<query::Get>("session=abc&from=3&to=9");
+        assert_eq!((g.seq, g.from, g.to), (None, Some(3), Some(9)));
+    }
 }
